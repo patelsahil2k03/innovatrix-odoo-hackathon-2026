@@ -38,6 +38,13 @@ target/
 .DS_Store
 Thumbs.db
 
+# Databases & test artifacts
+*.sqlite3
+*.db
+.pytest_cache/
+.coverage
+coverage/
+
 # Logs & misc
 *.log
 logs/
