@@ -26,8 +26,8 @@ export function RevenueTrendChart() {
     <svg id="revenue-trend-chart" className="trend-chart" viewBox={`0 0 ${w} ${h}`} preserveAspectRatio="none">
       <defs>
         <linearGradient id="trendGradient" x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor="#da291c" stopOpacity="0.35" />
-          <stop offset="100%" stopColor="#da291c" stopOpacity="0" />
+          <stop offset="0%" stopColor="#024ad8" stopOpacity="0.35" />
+          <stop offset="100%" stopColor="#024ad8" stopOpacity="0" />
         </linearGradient>
       </defs>
       {gridLines.map((y, i) => (

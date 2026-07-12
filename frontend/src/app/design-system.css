@@ -1,14 +1,17 @@
 /* ==========================================================================
    TransitOps Super Admin — Design System
-   Derived from DESIGN-ferrari.md (Ferrari cinematic-editorial brand system)
+   Layout/typography/spacing system derived from DESIGN-ferrari.md (Ferrari
+   cinematic-editorial brand system); brand accent overridden to the HP
+   Electric Blue palette.
    FerrariSans substitute: Inter, per doc "Known Gaps / Note on Font Substitutes"
    ========================================================================== */
 
 :root{
-  /* Brand & accent */
-  --color-primary: #da291c;
-  --color-primary-active: #b01e0a;
-  --color-primary-hover: #9d2211;
+  /* Brand & accent — HP Electric Blue palette */
+  --color-primary: #024ad8;        /* HP Electric Blue — CTAs, links, chevron fill */
+  --color-primary-hover: #296ef9;  /* Bright Blue — hover, pops against dark canvas */
+  --color-primary-active: #0e3191; /* Deep Navy — pressed state */
+  --color-primary-soft: #c9e0fc;   /* Soft Blue — selection chips (light-surface use) */
 
   /* Ink / text */
   --color-ink: #ffffff;
@@ -228,7 +231,7 @@ img{ max-width: 100%; display: block; }
 .sidebar-link.is-active{
   color: var(--color-ink);
   border-left-color: var(--color-primary);
-  background: rgba(218,41,28,0.08);
+  background: rgba(2,74,216,0.08);
 }
 
 .sidebar-link.is-active .icon{ opacity: 1; }
@@ -454,7 +457,7 @@ textarea.input{ height: auto; min-height: 96px; resize: vertical; }
 .badge-warning{ color: var(--color-warning); background: rgba(241,58,44,0.12); }
 .badge-info{ color: var(--color-info); background: rgba(76,152,185,0.12); }
 .badge-neutral{ color: var(--color-muted-soft); background: var(--color-canvas-elevated); }
-.badge-primary{ color: var(--color-primary); background: rgba(218,41,28,0.12); }
+.badge-primary{ color: var(--color-primary); background: rgba(2,74,216,0.12); }
 
 /* ==========================================================================
    Cards / Surfaces
@@ -718,8 +721,8 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
   min-height: 100vh;
   display: flex;
   background:
-    radial-gradient(ellipse 900px 500px at 15% 20%, rgba(218,41,28,0.16), transparent 60%),
-    radial-gradient(ellipse 700px 500px at 90% 85%, rgba(218,41,28,0.10), transparent 60%),
+    radial-gradient(ellipse 900px 500px at 15% 20%, rgba(2,74,216,0.16), transparent 60%),
+    radial-gradient(ellipse 700px 500px at 90% 85%, rgba(2,74,216,0.10), transparent 60%),
     linear-gradient(180deg, #1d1d1d 0%, #101010 100%);
   align-items: center;
   justify-content: center;

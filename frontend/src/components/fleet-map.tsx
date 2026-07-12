@@ -73,7 +73,7 @@ export function FleetMap() {
           const from = cityCoords[t.source_location];
           const to = cityCoords[t.destination_location];
           if (!from || !to) return;
-          L.polyline([from, to], { color: "#da291c", weight: 3, opacity: 0.9, dashArray: "8 6" }).addTo(map!);
+          L.polyline([from, to], { color: "#024ad8", weight: 3, opacity: 0.9, dashArray: "8 6" }).addTo(map!);
         });
     })();
 
