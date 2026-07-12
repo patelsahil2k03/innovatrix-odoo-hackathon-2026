@@ -594,6 +594,7 @@ function CompleteTripModal({
   const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [stale, setStale] = useState(false);
 
   function update(patch: Partial<CompleteTripFormValues>) {
     setValues((prev) => ({ ...prev, ...patch }));
@@ -634,6 +635,19 @@ function CompleteTripModal({
       });
       onDone();
     } catch (err) {
+      // TRIP_ALREADY_COMPLETED / TRIP_NOT_DISPATCHED mean the trip moved on server-side while
+      // this dialog was open (the live simulator advances/completes dispatched trips on its own
+      // tick) — their "fields.status" isn't a real field on this form, so there's nothing to
+      // highlight, only the list to refresh.
+      if (
+        err instanceof ApiError &&
+        (err.code === "TRIP_ALREADY_COMPLETED" || err.code === "TRIP_NOT_DISPATCHED")
+      ) {
+        setErrors({});
+        setError(`${err.message} — likely the live simulation moved it on. Close to refresh.`);
+        setStale(true);
+        return;
+      }
       // ODOMETER_REGRESSION comes back keyed to final_odometer_km.
       setErrors(fieldErrorsFrom(err));
       setError(formMessageFrom(err, "Failed to complete trip"));
@@ -642,26 +656,33 @@ function CompleteTripModal({
     }
   }
 
+  function handleClose() {
+    if (stale) onDone();
+    else onClose();
+  }
+
   if (!trip) return null;
 
   return (
     <Modal
       isOpen={!!trip}
-      onClose={onClose}
+      onClose={handleClose}
       title={`Complete Trip — ${trip.source_city} → ${trip.dest_city}`}
       footer={
         <>
-          <button className="btn btn-outline-muted" onClick={onClose}>
-            Cancel
+          <button className="btn btn-outline-muted" onClick={handleClose}>
+            {stale ? "Close & Refresh" : "Cancel"}
           </button>
-          <button
-            className="btn btn-primary"
-            type="submit"
-            form={COMPLETE_FORM_ID}
-            disabled={submitting}
-          >
-            {submitting ? "Saving…" : "Mark Completed"}
-          </button>
+          {stale ? null : (
+            <button
+              className="btn btn-primary"
+              type="submit"
+              form={COMPLETE_FORM_ID}
+              disabled={submitting}
+            >
+              {submitting ? "Saving…" : "Mark Completed"}
+            </button>
+          )}
         </>
       }
     >
