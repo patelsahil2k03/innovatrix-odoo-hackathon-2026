@@ -23,7 +23,7 @@ from transitops.models.driver import Driver
 from transitops.models.enums import DriverStatus, TripStatus, VehicleStatus
 from transitops.models.trip import Trip
 from transitops.models.vehicle import Vehicle
-from transitops.services.analytics import vehicle_metrics
+from transitops.services.analytics import health_scores_for
 
 W_CAPACITY, W_SAFETY, W_LICENSE, W_UTILIZATION, W_HEALTH = 35, 25, 15, 15, 10
 
@@ -67,14 +67,23 @@ def suggest_for(
         return []
 
     # One query for the whole fleet's active load, rather than N queries inside the loop.
-    trip_counts = dict(
-        db.execute(
-            select(Trip.vehicle_id, func.count(Trip.id))
-            .where(Trip.status.in_((TripStatus.DRAFT, TripStatus.DISPATCHED)))
-            .group_by(Trip.vehicle_id)
-        ).all()
+    counts_stmt = (
+        select(Trip.vehicle_id, func.count(Trip.id))
+        .where(Trip.status.in_((TripStatus.DRAFT, TripStatus.DISPATCHED)))
+        .group_by(Trip.vehicle_id)
     )
+    if exclude_trip is not None:
+        # We're advising ON this trip, so it must not count as load against its own candidate
+        # vehicle — otherwise the currently-assigned vehicle is penalised for the very trip
+        # we're being asked to place.
+        counts_stmt = counts_stmt.where(Trip.id != exclude_trip)
+    trip_counts = dict(db.execute(counts_stmt).all())
     busiest = max(trip_counts.values(), default=0)
+
+    # Health for every candidate in a fixed number of grouped queries — scoring the fleet one
+    # vehicle at a time here meant ~7 queries per candidate on an endpoint the wizard calls
+    # interactively.
+    health_by_vehicle = health_scores_for(db, vehicles)
 
     scored_vehicles = []
     for vehicle in vehicles:
@@ -86,7 +95,7 @@ def suggest_for(
         idleness = 1.0 - (queued / busiest) if busiest else 1.0
         utilization_pts = W_UTILIZATION * idleness
 
-        health = vehicle_metrics(db, vehicle)["health_score"]
+        health = health_by_vehicle[vehicle.id]
         health_pts = W_HEALTH * (health / 100.0)
 
         reasons = [

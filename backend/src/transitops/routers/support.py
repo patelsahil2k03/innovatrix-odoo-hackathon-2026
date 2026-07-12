@@ -22,6 +22,11 @@ router = APIRouter(tags=["alerts & audit"])
 
 ALERT_SORTABLE = {"created_at": Alert.created_at, "severity": Alert.severity, "type": Alert.type}
 AUDIT_SORTABLE = {"created_at": AuditLog.created_at, "action": AuditLog.action}
+NOTIFICATION_SORTABLE = {
+    "created_at": Notification.created_at,
+    "title": Notification.title,
+    "is_read": Notification.is_read,
+}
 
 
 @router.get("/alerts", response_model=Page[AlertOut])
@@ -73,7 +78,7 @@ def list_notifications(
     stmt = select(Notification).where(Notification.user_id == user.id)
     if is_read is not None:
         stmt = stmt.where(Notification.is_read == is_read)
-    stmt = stmt.order_by(Notification.created_at.desc())
+    stmt = apply_sort(stmt, params.sort, NOTIFICATION_SORTABLE, default="-created_at")
     return paginate(db, stmt, params)
 
 
