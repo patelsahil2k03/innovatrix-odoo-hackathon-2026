@@ -15,13 +15,13 @@ grep '^NEXT_PUBLIC_' .env > frontend/.env.local || true
 # die with the rest of the tree on an unclean exit (Ctrl+C, crash) — a leftover listener on
 # 3000/8000 is what causes "port 3000 in use, using 3001 instead" on the next run. Clear them
 # before starting, not just on exit.
-fuser -k 3000/tcp 8000/tcp >/dev/null 2>&1 || true
+sudo fuser -k 3000/tcp 8000/tcp >/dev/null 2>&1 || true
 
 if [[ "${1:-}" != "--no-db" ]]; then
   echo "→ starting postgres (docker)…"
-  docker compose -f infra/docker-compose.yml up -d db
+  sg docker -c "docker compose -f infra/docker-compose.yml up -d db"
   echo "→ waiting for db health…"
-  until [ "$(docker inspect -f '{{.State.Health.Status}}' transitops-db 2>/dev/null)" = "healthy" ]; do sleep 1; done
+  until [ "$(sg docker -c "docker inspect -f '{{.State.Health.Status}}' transitops-db" 2>/dev/null)" = "healthy" ]; do sleep 1; done
 fi
 
 cleanup() {
@@ -31,7 +31,7 @@ cleanup() {
   # subprocess, and npm/Next.js don't always forward SIGTERM to their own children — both can
   # survive a plain process-group kill. Killing by actual port ownership works regardless of
   # how the process tree is shaped.
-  fuser -k 3000/tcp 8000/tcp >/dev/null 2>&1 || true
+  sudo fuser -k 3000/tcp 8000/tcp >/dev/null 2>&1 || true
   kill 0 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM

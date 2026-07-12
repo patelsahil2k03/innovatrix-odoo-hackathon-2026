@@ -7,10 +7,10 @@
     "dev": "bash scripts/dev.sh",
     "dev:no-db": "bash scripts/dev.sh --no-db",
 
-    "docker:up": "docker compose -f infra/docker-compose.yml up -d db",
-    "docker:down": "docker compose -f infra/docker-compose.yml down",
-    "docker:ps": "docker compose -f infra/docker-compose.yml ps",
-    "docker:logs": "docker compose -f infra/docker-compose.yml logs -f db",
+    "docker:up": "sg docker -c 'docker compose -f infra/docker-compose.yml up -d db'",
+    "docker:down": "sg docker -c 'docker compose -f infra/docker-compose.yml down'",
+    "docker:ps": "sg docker -c 'docker compose -f infra/docker-compose.yml ps'",
+    "docker:logs": "sg docker -c 'docker compose -f infra/docker-compose.yml logs -f db'",
 
     "install:be": "cd backend && uv sync",
     "be": "cd backend && uv run uvicorn transitops.main:app --reload --port 8000",
