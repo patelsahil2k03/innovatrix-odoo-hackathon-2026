@@ -12,6 +12,8 @@ import {
 } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { initials } from "@/lib/format";
+import { ROLE_LABELS } from "@/lib/roles";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 interface NavItem {
   href: string;
@@ -42,13 +44,6 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
-const ROLE_LABELS: Record<string, string> = {
-  fleet_manager: "Fleet Manager",
-  dispatcher: "Dispatcher",
-  safety_officer: "Safety Officer",
-  financial_analyst: "Financial Analyst",
-};
-
 export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: () => void }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
@@ -62,7 +57,9 @@ export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: (
         <div className="sidebar-brand-mark">T</div>
         <div>
           <div className="sidebar-brand-name">TransitOps</div>
-          <div className="sidebar-brand-sub">Super Admin</div>
+          <div className="sidebar-brand-sub">
+            {user ? ROLE_LABELS[user.role] ?? user.role : "—"}
+          </div>
         </div>
       </div>
       <nav className="sidebar-nav">
@@ -86,10 +83,13 @@ export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: (
       <div className="sidebar-footer">
         <div className="sidebar-user">
           <div className="sidebar-user-avatar">{user ? initials(user.full_name) : "—"}</div>
-          <div>
+          <div className="sidebar-user-meta">
             <div className="sidebar-user-name">{user?.full_name ?? "—"}</div>
             <div className="sidebar-user-role">{user ? ROLE_LABELS[user.role] ?? user.role : ""}</div>
           </div>
+        </div>
+        <div className="sidebar-footer-actions">
+          <ThemeToggle />
           <button className="btn-text text-body-sm sidebar-logout" onClick={logout} aria-label="Sign out">
             Sign out
           </button>

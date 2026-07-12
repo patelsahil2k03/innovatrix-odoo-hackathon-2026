@@ -6,8 +6,8 @@ import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
   const { refresh } = useAuth();
-  const [email, setEmail] = useState("fleet@transitops.in");
-  const [password, setPassword] = useState("Demo@1234");
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -36,7 +36,7 @@ export default function LoginPage() {
           </div>
         </div>
 
-        <h1 className="text-display-md login-title">Super Admin Access</h1>
+        <h1 className="text-display-md login-title">Sign In</h1>
         <p className="text-body-md login-sub">
           Sign in to manage fleet operations, dispatch, and analytics.
         </p>
@@ -82,10 +82,6 @@ export default function LoginPage() {
             {submitting ? "Signing in…" : "Sign In"}
           </button>
         </form>
-
-        <p className="text-caption login-footnote">
-          Demo accounts: fleet@ · dispatch@ · safety@ · finance@transitops.in — password Demo@1234
-        </p>
       </div>
     </div>
   );

@@ -17,6 +17,8 @@ import {
 } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtMoney, fmtDateTime, fmtNumber } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteTrips, ROLE_LABELS } from "@/lib/roles";
 
 async function loadTrips(statusFilter: string) {
   const [allPage, filteredPage, vehiclesPage, driversPage] = await Promise.all([
@@ -66,6 +68,8 @@ const BLANK_TRIP: NewTripForm = {
 };
 
 export default function TripsPage() {
+  const { user } = useAuth();
+  const canDispatch = canWriteTrips(user?.role);
   const [status, setStatus] = useState("");
   const [isNewTripOpen, setIsNewTripOpen] = useState(false);
   const [form, setForm] = useState<NewTripForm>(BLANK_TRIP);
@@ -93,7 +97,9 @@ export default function TripsPage() {
   const draftCount = allTrips.filter((t) => t.status === "draft").length;
   const dispatchedCount = allTrips.filter((t) => t.status === "dispatched").length;
   const completedCount = allTrips.filter((t) => t.status === "completed").length;
-  const totalRevenue = allTrips.filter((t) => t.status !== "cancelled").reduce((s, t) => s + t.revenue, 0);
+  // Completed trips only — matches kpis.total_revenue on Dashboard/Analytics. Draft/dispatched
+  // trips carry a planned revenue figure that isn't earned yet, so it must not be counted here.
+  const totalRevenue = allTrips.filter((t) => t.status === "completed").reduce((s, t) => s + t.revenue, 0);
 
   async function handleCreateTrip(e: React.SyntheticEvent) {
     e.preventDefault();
@@ -145,7 +151,7 @@ export default function TripsPage() {
           { label: "Draft (Pending Dispatch)", value: draftCount },
           { label: "Dispatched", value: dispatchedCount },
           { label: "Completed", value: completedCount },
-          { label: "Total Revenue", value: fmtMoney(totalRevenue) },
+          { label: "Total Revenue", value: fmtMoney(totalRevenue), sub: "completed trips" },
         ]}
       />
 
@@ -161,10 +167,16 @@ export default function TripsPage() {
                 <option value="cancelled">Cancelled</option>
               </select>
             </div>
-            <button className="btn btn-primary" onClick={() => setIsNewTripOpen(true)}>
-              <PlusIcon style={{ width: 16, height: 16 }} />
-              New Trip
-            </button>
+            {canDispatch ? (
+              <button className="btn btn-primary" onClick={() => setIsNewTripOpen(true)}>
+                <PlusIcon style={{ width: 16, height: 16 }} />
+                New Trip
+              </button>
+            ) : (
+              <span className="text-body-sm u-muted-soft">
+                Only Dispatchers can create or manage trips (you&apos;re signed in as {ROLE_LABELS[user?.role ?? ""] ?? user?.role}).
+              </span>
+            )}
           </div>
 
           {rowError ? (
@@ -215,7 +227,9 @@ export default function TripsPage() {
                           <td className="cell-muted">{fmtDateTime(t.dispatched_at)}</td>
                           <td>
                             <div style={{ display: "flex", gap: 4 }}>
-                              {t.status === "draft" ? (
+                              {!canDispatch ? (
+                                <span className="cell-muted text-caption">—</span>
+                              ) : t.status === "draft" ? (
                                 <>
                                   <button
                                     className="btn btn-sm btn-primary"
@@ -305,13 +319,15 @@ export default function TripsPage() {
                               </div>
                               <div className="text-caption match-reason">{s.reasons.join(" · ")}</div>
                             </div>
-                            <button
-                              className="btn btn-sm btn-primary"
-                              disabled={busyTripId === trip.id}
-                              onClick={() => applyPairing(trip.id, s)}
-                            >
-                              Use
-                            </button>
+                            {canDispatch ? (
+                              <button
+                                className="btn btn-sm btn-primary"
+                                disabled={busyTripId === trip.id}
+                                onClick={() => applyPairing(trip.id, s)}
+                              >
+                                Use
+                              </button>
+                            ) : null}
                           </div>
                         ))
                       )}

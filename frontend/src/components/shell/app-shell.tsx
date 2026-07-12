@@ -3,7 +3,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
 import { Sidebar } from "./sidebar";
-import { MenuIcon, SearchIcon, BellIcon, ArrowLeftIcon } from "@/components/icons";
+import { MenuIcon, ArrowLeftIcon } from "@/components/icons";
+import { NotificationsPopover } from "@/components/notifications-popover";
+import { GlobalSearch } from "@/components/global-search";
 
 export function AppShell({
   eyebrow,
@@ -62,14 +64,8 @@ export function AppShell({
           <div className="topbar-actions">
             {actions ?? (
               <>
-                <div className="search-field topbar-search">
-                  <SearchIcon />
-                  <input className="input" type="text" placeholder="Search vehicles, drivers, trips…" />
-                </div>
-                <button className="icon-btn" aria-label="Notifications">
-                  <BellIcon />
-                  <span className="dot" />
-                </button>
+                <GlobalSearch />
+                <NotificationsPopover />
               </>
             )}
           </div>
