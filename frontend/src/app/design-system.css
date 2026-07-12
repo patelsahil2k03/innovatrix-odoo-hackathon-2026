@@ -67,6 +67,31 @@
   --font-family: var(--font-inter), -apple-system, system-ui, sans-serif;
 }
 
+/* Light theme — toggled via [data-theme] on <html>, set before paint by the inline boot
+   script in app/layout.tsx (see lib/theme.ts) so there is no flash of the wrong theme.
+   Brand/accent and semantic colors are unchanged; only ink/surface tokens flip. */
+:root[data-theme="light"]{
+  --color-ink: var(--color-body-on-light);
+  --color-body: #55555a;
+  --color-body-strong: var(--color-body-on-light);
+  --color-muted: #767680;
+  --color-muted-soft: #86868f;
+  --color-on-primary: #ffffff;
+
+  --color-canvas: var(--color-surface-strong-light);
+  --color-canvas-elevated: var(--color-canvas-light);
+  --color-surface-card: var(--color-canvas-light);
+
+  --color-hairline: var(--color-hairline-on-light);
+}
+
+/* A few hover/scrim states are hardcoded to lighten a dark surface — on light mode they need
+   to darken instead. Map-chrome (leaflet controls, vehicle pins) is intentionally excluded:
+   the basemap tile layer is always dark regardless of app theme. */
+[data-theme="light"] .sidebar-link:hover{ background: rgba(0,0,0,0.04); }
+[data-theme="light"] .btn-outline:hover{ background: rgba(0,0,0,0.05); }
+[data-theme="light"] .data-table tbody tr:hover{ background: rgba(0,0,0,0.025); }
+
 *, *::before, *::after{ box-sizing: border-box; }
 
 html, body{
@@ -240,12 +265,16 @@ img{ max-width: 100%; display: block; }
   border-top: 1px solid var(--color-hairline);
   padding: var(--space-xs);
   flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
 }
 
 .sidebar-user{
   display: flex;
   align-items: center;
   gap: var(--space-xxs);
+  min-width: 0;
 }
 
 .sidebar-user-avatar{
@@ -262,9 +291,21 @@ img{ max-width: 100%; display: block; }
   border: 1px solid var(--color-hairline);
 }
 
-.sidebar-user-name{ font-size: 13px; font-weight: 600; }
-.sidebar-user-role{ font-size: 11px; color: var(--color-primary); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
-.sidebar-logout{ margin-left: auto; flex-shrink: 0; }
+.sidebar-user-meta{ min-width: 0; overflow: hidden; }
+.sidebar-user-name{ font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-user-role{ font-size: 11px; color: var(--color-primary); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.sidebar-footer-actions{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sidebar-logout{ flex-shrink: 0; }
+
+.theme-toggle{ width: 32px; height: 32px; flex-shrink: 0; }
+:root:not([data-theme="light"]) .theme-icon-moon{ display: none; }
+:root[data-theme="light"] .theme-icon-sun{ display: none; }
 
 /* ---- Main / Topbar ------------------------------------------------------ */
 
@@ -344,6 +385,140 @@ img{ max-width: 100%; display: block; }
   color: var(--color-ink);
 }
 
+/* ---- Notification Popover ----------------------------------------------- */
+
+.notification-popover{
+  position: relative;
+}
+
+.notification-dropdown{
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 360px;
+  max-height: 480px;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  display: flex;
+  flex-direction: column;
+  z-index: 100;
+  overflow: hidden;
+}
+
+.notification-header{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-hairline);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.notification-header h3{
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.notification-header button{
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  flex-shrink: 0;
+  line-height: 1.4;
+}
+
+.notification-list{
+  overflow-y: auto;
+  flex: 1;
+}
+
+.notification-empty{
+  padding: 32px 16px;
+  text-align: center;
+}
+
+.notification-empty p{
+  margin: 0;
+  font-size: 13px;
+  color: var(--color-muted);
+}
+
+.notification-item{
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--color-hairline);
+  transition: background 0.15s ease;
+}
+
+.notification-item:last-child{
+  border-bottom: none;
+}
+
+.notification-item:hover{
+  background: var(--color-canvas-elevated);
+}
+
+.notification-item.unread{
+  background: color-mix(in srgb, var(--color-primary) 4%, transparent);
+}
+
+.notification-dot{
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-primary);
+  flex-shrink: 0;
+  margin-top: 5px;
+}
+
+.notification-content{
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.notification-content .notif-title{
+  margin: 0;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-ink);
+  white-space: normal;
+  word-break: break-word;
+}
+
+.notification-content .notif-message{
+  margin: 0;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+  color: var(--color-muted);
+  white-space: normal;
+  word-break: break-word;
+}
+
+.notification-content .notif-time{
+  margin: 0;
+  font-size: 11px;
+  font-weight: 400;
+  line-height: 1.4;
+  color: var(--color-muted);
+  margin-top: 2px;
+}
+
 /* ==========================================================================
    Buttons
    ========================================================================== */
@@ -418,11 +593,64 @@ textarea.input{ height: auto; min-height: 96px; resize: vertical; }
   border-color: var(--color-primary);
 }
 
-.select{ appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--color-muted-soft) 50%), linear-gradient(135deg, var(--color-muted-soft) 50%, transparent 50%); background-position: calc(100% - 20px) calc(50% - 2px), calc(100% - 15px) calc(50% - 2px); background-size: 5px 5px; background-repeat: no-repeat; }
+.select{ appearance: none; padding-top: 12px; padding-bottom: 12px; padding-right: 40px; line-height: 1.5; text-overflow: ellipsis; white-space: nowrap; overflow: hidden; background-image: linear-gradient(45deg, transparent 50%, var(--color-muted-soft) 50%), linear-gradient(135deg, var(--color-muted-soft) 50%, transparent 50%); background-position: calc(100% - 20px) calc(50% - 2px), calc(100% - 15px) calc(50% - 2px); background-size: 5px 5px; background-repeat: no-repeat; }
 
 .search-field{ position: relative; }
 .search-field .input{ padding-left: 40px; height: 40px; }
 .search-field .icon{ position: absolute; left: 12px; top: 50%; transform: translateY(-50%); width: 16px; height: 16px; color: var(--color-muted-soft); }
+
+/* ---- Global search dropdown ---------------------------------------------- */
+
+.search-dropdown{
+  position: absolute;
+  top: calc(100% + 8px);
+  left: 0;
+  right: 0;
+  max-height: 420px;
+  overflow-y: auto;
+  background: var(--color-canvas);
+  border: 1px solid var(--color-hairline);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  z-index: 100;
+}
+
+.search-group-label{
+  padding: var(--space-xxs) var(--space-md) var(--space-xxxs);
+  color: var(--color-muted);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 1.1px;
+  text-transform: uppercase;
+}
+
+.search-result{
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-xs);
+  width: 100%;
+  padding: var(--space-xxs) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--color-ink);
+  font-family: inherit;
+  font-size: 13px;
+  text-align: left;
+  border-bottom: 1px solid var(--color-hairline);
+}
+
+.search-group:last-child .search-result:last-child{ border-bottom: none; }
+
+.search-result:hover{ background: var(--color-canvas-elevated); }
+
+.search-result-title{
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .form-grid{ display: grid; grid-template-columns: repeat(2, 1fr); gap: var(--space-xs); }
 .form-grid .span-2{ grid-column: span 2; }

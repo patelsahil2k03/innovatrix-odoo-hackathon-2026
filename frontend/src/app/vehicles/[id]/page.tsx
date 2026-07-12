@@ -14,6 +14,8 @@ import {
 } from "@/components/ui/status-badge";
 import { api, type DriverOut } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteVehicles } from "@/lib/roles";
 import {
   fmtMoney,
   fmtDate,
@@ -49,6 +51,8 @@ async function loadVehicle(id: string) {
 
 export default function VehicleDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const canManage = canWriteVehicles(user?.role);
   const { data, loading, error, reload } = useFetch(() => loadVehicle(id), [id]);
 
   const driverById = useMemo(
@@ -81,10 +85,12 @@ export default function VehicleDetailPage() {
       title={vehicle.registration_number}
       backHref="/vehicles"
       actions={
-        <>
-          <button className="btn btn-outline-muted btn-sm">Edit</button>
-          <button className="btn btn-primary btn-sm">Log Maintenance</button>
-        </>
+        canManage ? (
+          <>
+            <button className="btn btn-outline-muted btn-sm">Edit</button>
+            <button className="btn btn-primary btn-sm">Log Maintenance</button>
+          </>
+        ) : undefined
       }
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", marginBottom: "var(--space-sm)" }}>

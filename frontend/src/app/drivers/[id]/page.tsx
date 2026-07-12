@@ -10,6 +10,8 @@ import { DriverStatusBadge, TripStatusBadge, DocumentStatusBadge } from "@/compo
 import { api, type VehicleOut } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtMoney, fmtDate, fmtDateTime, healthMeterClass, DOCUMENT_TYPE_LABELS } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteDrivers, canWriteTrips } from "@/lib/roles";
 
 async function loadDriver(id: string) {
   const [driver, documents, tripsPage, vehiclesPage] = await Promise.all([
@@ -23,6 +25,9 @@ async function loadDriver(id: string) {
 
 export default function DriverDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const canEdit = canWriteDrivers(user?.role);
+  const canAssign = canWriteTrips(user?.role);
   const { data, loading, error, reload } = useFetch(() => loadDriver(id), [id]);
 
   const vehicleById = useMemo(
@@ -55,10 +60,12 @@ export default function DriverDetailPage() {
       title={driver.name}
       backHref="/drivers"
       actions={
-        <>
-          <button className="btn btn-outline-muted btn-sm">Edit</button>
-          <button className="btn btn-primary btn-sm">Assign to Trip</button>
-        </>
+        canEdit || canAssign ? (
+          <>
+            {canEdit ? <button className="btn btn-outline-muted btn-sm">Edit</button> : null}
+            {canAssign ? <button className="btn btn-primary btn-sm">Assign to Trip</button> : null}
+          </>
+        ) : undefined
       }
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", marginBottom: "var(--space-sm)" }}>

@@ -97,7 +97,9 @@ export default function TripsPage() {
   const draftCount = allTrips.filter((t) => t.status === "draft").length;
   const dispatchedCount = allTrips.filter((t) => t.status === "dispatched").length;
   const completedCount = allTrips.filter((t) => t.status === "completed").length;
-  const totalRevenue = allTrips.filter((t) => t.status !== "cancelled").reduce((s, t) => s + t.revenue, 0);
+  // Completed trips only — matches kpis.total_revenue on Dashboard/Analytics. Draft/dispatched
+  // trips carry a planned revenue figure that isn't earned yet, so it must not be counted here.
+  const totalRevenue = allTrips.filter((t) => t.status === "completed").reduce((s, t) => s + t.revenue, 0);
 
   async function handleCreateTrip(e: React.SyntheticEvent) {
     e.preventDefault();
@@ -149,7 +151,7 @@ export default function TripsPage() {
           { label: "Draft (Pending Dispatch)", value: draftCount },
           { label: "Dispatched", value: dispatchedCount },
           { label: "Completed", value: completedCount },
-          { label: "Total Revenue", value: fmtMoney(totalRevenue) },
+          { label: "Total Revenue", value: fmtMoney(totalRevenue), sub: "completed trips" },
         ]}
       />
 
