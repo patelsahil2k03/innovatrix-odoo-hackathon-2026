@@ -11,6 +11,8 @@ import { PlusIcon, SearchIcon } from "@/components/icons";
 import { api, ApiError, type VehicleType } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtNumber, healthMeterClass, VEHICLE_TYPE_LABELS } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteVehicles, ROLE_LABELS } from "@/lib/roles";
 
 interface NewVehicleForm {
   registration_number: string;
@@ -33,6 +35,8 @@ const BLANK_FORM: NewVehicleForm = {
 };
 
 export default function VehiclesPage() {
+  const { user } = useAuth();
+  const canAdd = canWriteVehicles(user?.role);
   const [status, setStatus] = useState("");
   const [vehicleType, setVehicleType] = useState("");
   const [region, setRegion] = useState("");
@@ -146,10 +150,16 @@ export default function VehiclesPage() {
             />
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
-          <PlusIcon className="icon" style={{ width: 16, height: 16 }} />
-          Add Vehicle
-        </button>
+        {canAdd ? (
+          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
+            <PlusIcon className="icon" style={{ width: 16, height: 16 }} />
+            Add Vehicle
+          </button>
+        ) : (
+          <span className="text-body-sm u-muted-soft">
+            Only Fleet Managers can add vehicles (you&apos;re signed in as {ROLE_LABELS[user?.role ?? ""] ?? user?.role}).
+          </span>
+        )}
       </div>
 
       {loading && !data ? (

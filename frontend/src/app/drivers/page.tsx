@@ -11,6 +11,8 @@ import { PlusIcon, SearchIcon } from "@/components/icons";
 import { api, ApiError, type LicenseCategory } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtDate, healthMeterClass, initials, ratingFromSafetyScore } from "@/lib/format";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteDrivers, ROLE_LABELS } from "@/lib/roles";
 
 const LICENSE_CATEGORIES: LicenseCategory[] = ["LMV", "HMV", "TRANS"];
 const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
@@ -40,6 +42,8 @@ const BLANK_FORM: NewDriverForm = {
 };
 
 export default function DriversPage() {
+  const { user } = useAuth();
+  const canAdd = canWriteDrivers(user?.role);
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -112,10 +116,16 @@ export default function DriversPage() {
             />
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
-          <PlusIcon style={{ width: 16, height: 16 }} />
-          Add Driver
-        </button>
+        {canAdd ? (
+          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
+            <PlusIcon style={{ width: 16, height: 16 }} />
+            Add Driver
+          </button>
+        ) : (
+          <span className="text-body-sm u-muted-soft">
+            Only Safety Officers can add drivers (you&apos;re signed in as {ROLE_LABELS[user?.role ?? ""] ?? user?.role}).
+          </span>
+        )}
       </div>
 
       {loading && !data ? (

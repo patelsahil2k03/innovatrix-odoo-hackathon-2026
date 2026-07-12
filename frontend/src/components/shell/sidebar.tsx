@@ -12,6 +12,7 @@ import {
 } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { initials } from "@/lib/format";
+import { ROLE_LABELS } from "@/lib/roles";
 
 interface NavItem {
   href: string;
@@ -41,13 +42,6 @@ const NAV_GROUPS: NavGroup[] = [
     ],
   },
 ];
-
-const ROLE_LABELS: Record<string, string> = {
-  fleet_manager: "Fleet Manager",
-  dispatcher: "Dispatcher",
-  safety_officer: "Safety Officer",
-  financial_analyst: "Financial Analyst",
-};
 
 export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: () => void }) {
   const pathname = usePathname();
