@@ -81,7 +81,23 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <AppShell eyebrow="Insights" title="Fleet Map & Analytics">
+    <AppShell
+      eyebrow="Insights"
+      title="Fleet Map & Analytics"
+      actions={
+        <>
+          <a className="btn btn-outline-muted btn-sm" href={api.analytics.exportCsvUrl("fleet")}>
+            Export Fleet CSV
+          </a>
+          <a className="btn btn-outline-muted btn-sm" href={api.analytics.exportCsvUrl("trips")}>
+            Export Trips CSV
+          </a>
+          <a className="btn btn-outline-muted btn-sm" href={api.analytics.exportCsvUrl("expenses")}>
+            Export Expenses CSV
+          </a>
+        </>
+      }
+    >
       <KpiGrid
         cells={[
           { label: "Total Revenue", value: fmtMoney(data.kpis.total_revenue), primary: true },

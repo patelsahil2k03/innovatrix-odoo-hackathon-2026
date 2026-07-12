@@ -8,7 +8,9 @@ import { Meter } from "@/components/ui/meter";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import { DriverStatusBadge, TripStatusBadge, DocumentStatusBadge } from "@/components/ui/status-badge";
 import { api, type VehicleOut } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useFetch } from "@/lib/use-fetch";
+import { can } from "@/lib/rbac";
 import { fmtMoney, fmtDate, fmtDateTime, healthMeterClass, DOCUMENT_TYPE_LABELS } from "@/lib/format";
 
 async function loadDriver(id: string) {
@@ -23,6 +25,9 @@ async function loadDriver(id: string) {
 
 export default function DriverDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const canWriteDriver = can.writeDrivers(user?.role);
+  const canWriteTrips = can.writeTrips(user?.role);
   const { data, loading, error, reload } = useFetch(() => loadDriver(id), [id]);
 
   const vehicleById = useMemo(
@@ -56,8 +61,12 @@ export default function DriverDetailPage() {
       backHref="/drivers"
       actions={
         <>
-          <button className="btn btn-outline-muted btn-sm">Edit</button>
-          <button className="btn btn-primary btn-sm">Assign to Trip</button>
+          {/* TODO(phase: missing screens): wire real edit/assign handlers — buttons are
+              role-gated to match the backend but have no handler yet. */}
+          {canWriteDriver && <button className="btn btn-outline-muted btn-sm">Edit</button>}
+          {canWriteTrips && (
+            <button className="btn btn-primary btn-sm">Assign to Trip</button>
+          )}
         </>
       }
     >

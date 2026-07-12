@@ -9,8 +9,10 @@ import { DriverStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import { PlusIcon, SearchIcon } from "@/components/icons";
 import { api, ApiError, type LicenseCategory } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtDate, healthMeterClass, initials, ratingFromSafetyScore } from "@/lib/format";
+import { can } from "@/lib/rbac";
 
 const LICENSE_CATEGORIES: LicenseCategory[] = ["LMV", "HMV", "TRANS"];
 const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
@@ -40,6 +42,8 @@ const BLANK_FORM: NewDriverForm = {
 };
 
 export default function DriversPage() {
+  const { user } = useAuth();
+  const canWrite = can.writeDrivers(user?.role);
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
@@ -112,10 +116,12 @@ export default function DriversPage() {
             />
           </div>
         </div>
-        <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
-          <PlusIcon style={{ width: 16, height: 16 }} />
-          Add Driver
-        </button>
+        {canWrite && (
+          <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
+            <PlusIcon style={{ width: 16, height: 16 }} />
+            Add Driver
+          </button>
+        )}
       </div>
 
       {loading && !data ? (

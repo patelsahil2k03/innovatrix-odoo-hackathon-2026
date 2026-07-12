@@ -13,7 +13,9 @@ import {
   TripStatusBadge,
 } from "@/components/ui/status-badge";
 import { api, type DriverOut } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 import { useFetch } from "@/lib/use-fetch";
+import { can } from "@/lib/rbac";
 import {
   fmtMoney,
   fmtDate,
@@ -49,6 +51,9 @@ async function loadVehicle(id: string) {
 
 export default function VehicleDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const { user } = useAuth();
+  const canWriteVehicle = can.writeVehicles(user?.role);
+  const canWriteMaintenance = can.writeMaintenance(user?.role);
   const { data, loading, error, reload } = useFetch(() => loadVehicle(id), [id]);
 
   const driverById = useMemo(
@@ -82,8 +87,12 @@ export default function VehicleDetailPage() {
       backHref="/vehicles"
       actions={
         <>
-          <button className="btn btn-outline-muted btn-sm">Edit</button>
-          <button className="btn btn-primary btn-sm">Log Maintenance</button>
+          {/* TODO(phase: missing screens): wire real edit/maintenance forms — buttons are
+              role-gated to match the backend (fleet_manager only) but have no handler yet. */}
+          {canWriteVehicle && <button className="btn btn-outline-muted btn-sm">Edit</button>}
+          {canWriteMaintenance && (
+            <button className="btn btn-primary btn-sm">Log Maintenance</button>
+          )}
         </>
       }
     >
