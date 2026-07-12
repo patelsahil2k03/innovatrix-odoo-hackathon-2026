@@ -224,7 +224,9 @@ export default function TripsPage() {
         ]}
       />
 
-      <div className="grid-2">
+      {/* grid-2-wide: the left column holds a table that needs ~1000px, so the side panel only
+          survives on very wide screens — below that we stack (see design-system.css). */}
+      <div className="grid-2 grid-2-wide">
         <div>
           <div className="table-toolbar">
             <div className="table-filters">
@@ -281,7 +283,7 @@ export default function TripsPage() {
           ) : (
             <div className="table-wrap">
               <div className="table-scroll">
-              <table className="data-table">
+              <table className="data-table sticky-actions">
                 <thead>
                   <tr>
                     <SortableTh label="Route" field="source_city" sort={sort} onSort={toggleSort} />
@@ -634,6 +636,20 @@ function CompleteTripModal({
       });
       onDone();
     } catch (err) {
+      // The backend's live simulator advances and can auto-complete a dispatched trip on its
+      // own tick, so this request can lose that race: the trip really is completed by the
+      // time it lands, just not by this submit. Rather than guess from the error code, ask
+      // the server what's actually true — if the trip is already completed, this is not a
+      // failure the user needs to see or retry.
+      try {
+        const latest = await api.trips.get(trip.id);
+        if (latest.status === "completed") {
+          onDone();
+          return;
+        }
+      } catch {
+        // Couldn't even check — fall through and show the original error below.
+      }
       // ODOMETER_REGRESSION comes back keyed to final_odometer_km.
       setErrors(fieldErrorsFrom(err));
       setError(formMessageFrom(err, "Failed to complete trip"));
