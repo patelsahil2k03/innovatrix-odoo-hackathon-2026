@@ -1,9 +1,7 @@
 # Innovatrix — Odoo Hackathon 2026
 
-[![Demo Video](https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=youtube)](ADD_DEMO_LINK_HERE)
+[![Demo Video](https://img.shields.io/badge/Demo-Video-red?style=for-the-badge&logo=googledrive)](https://drive.google.com/drive/folders/15lhtf5ktAFehLSVLiwhhYXHWjMpj5B1t?usp=drive_link)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg?style=for-the-badge)](LICENSE)
-
-> **Note:** Replace `ADD_DEMO_LINK_HERE` above with the public application demo video link before final submission.
 
 Team Innovatrix's submission for the Odoo Hackathon 2026 virtual round — an 8-hour build against a surprise problem statement.
 
