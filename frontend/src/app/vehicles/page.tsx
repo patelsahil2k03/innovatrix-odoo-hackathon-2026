@@ -134,14 +134,14 @@ export default function VehiclesPage() {
 
       <div className="table-toolbar">
         <div className="table-filters">
-          <select className="select" value={status} onChange={(e) => updateFilter(setStatus, e.target.value)}>
+          <select className="select select-sm" value={status} onChange={(e) => updateFilter(setStatus, e.target.value)}>
             <option value="">All Statuses</option>
             <option value="available">Available</option>
             <option value="on_trip">On Trip</option>
             <option value="in_shop">In Shop</option>
             <option value="retired">Retired</option>
           </select>
-          <select className="select" value={vehicleType} onChange={(e) => updateFilter(setVehicleType, e.target.value)}>
+          <select className="select select-sm" value={vehicleType} onChange={(e) => updateFilter(setVehicleType, e.target.value)}>
             <option value="">All Types</option>
             {Object.entries(VEHICLE_TYPE_LABELS).map(([v, label]) => (
               <option key={v} value={v}>
@@ -149,7 +149,7 @@ export default function VehiclesPage() {
               </option>
             ))}
           </select>
-          <select className="select" value={region} onChange={(e) => updateFilter(setRegion, e.target.value)}>
+          <select className="select select-sm" value={region} onChange={(e) => updateFilter(setRegion, e.target.value)}>
             <option value="">All Regions</option>
             {regions.map((r) => (
               <option key={r} value={r}>

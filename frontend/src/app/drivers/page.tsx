@@ -116,7 +116,7 @@ export default function DriversPage() {
 
       <div className="table-toolbar">
         <div className="table-filters">
-          <select className="select" value={status} onChange={(e) => updateFilter(setStatus, e.target.value)}>
+          <select className="select select-sm" value={status} onChange={(e) => updateFilter(setStatus, e.target.value)}>
             <option value="">All Statuses</option>
             <option value="available">Available</option>
             <option value="on_trip">On Trip</option>
