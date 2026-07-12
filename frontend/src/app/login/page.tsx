@@ -1,25 +1,51 @@
 "use client";
 
 import { useState } from "react";
-import { api, ApiError } from "@/lib/api";
+import { api } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
+import { Field, FormAlert } from "@/components/ui/field";
+import {
+  fieldErrorsFrom,
+  formMessageFrom,
+  hasErrors,
+  validateLogin,
+  type FieldErrors,
+} from "@/lib/validation";
 
 export default function LoginPage() {
   const { refresh } = useAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  function clearError(field: string) {
+    setErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    const found = validateLogin(email, password);
+    if (hasErrors(found)) {
+      setErrors(found);
+      return;
+    }
+    setErrors({});
     setSubmitting(true);
+
     try {
       await api.auth.login(email, password);
       await refresh();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Unable to sign in. Please try again.");
+      setErrors(fieldErrorsFrom(err));
+      setError(formMessageFrom(err, "Unable to sign in. Please try again."));
     } finally {
       setSubmitting(false);
     }
@@ -41,37 +67,36 @@ export default function LoginPage() {
           Sign in to manage fleet operations, dispatch, and analytics.
         </p>
 
-        <form className="stack" onSubmit={handleSubmit}>
-          <div className="field">
-            <label className="label" htmlFor="email">
-              Email
-            </label>
+        <form className="stack" onSubmit={handleSubmit} noValidate>
+          {error ? <FormAlert message={error} /> : null}
+
+          <Field id="email" label="Email" required error={errors.email}>
             <input
               className="input"
-              id="email"
               type="email"
+              autoComplete="email"
               placeholder="you@transitops.in"
               value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              required
+              onChange={(e) => {
+                setEmail(e.target.value);
+                clearError("email");
+              }}
             />
-          </div>
-          <div className="field">
-            <label className="label" htmlFor="password">
-              Password
-            </label>
+          </Field>
+
+          <Field id="password" label="Password" required error={errors.password}>
             <input
               className="input"
-              id="password"
               type="password"
+              autoComplete="current-password"
               placeholder="••••••••••"
               value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
+              onChange={(e) => {
+                setPassword(e.target.value);
+                clearError("password");
+              }}
             />
-          </div>
-
-          {error ? <p className="text-body-sm u-warning">{error}</p> : null}
+          </Field>
 
           <button
             type="submit"

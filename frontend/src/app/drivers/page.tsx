@@ -5,15 +5,25 @@ import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Modal } from "@/components/ui/modal";
+import { Field, FormAlert, RequiredLegend } from "@/components/ui/field";
 import { DriverStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import { PlusIcon, SearchIcon } from "@/components/icons";
-import { api, ApiError, type LicenseCategory } from "@/lib/api";
+import { api, type LicenseCategory } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtDate, healthMeterClass, initials, ratingFromSafetyScore } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import { canWriteDrivers, ROLE_LABELS } from "@/lib/roles";
+import {
+  fieldErrorsFrom,
+  formMessageFrom,
+  hasErrors,
+  licenseExpiryWarning,
+  validateDriver,
+  type FieldErrors,
+} from "@/lib/validation";
 
+const FORM_ID = "add-driver-form";
 const LICENSE_CATEGORIES: LicenseCategory[] = ["LMV", "HMV", "TRANS"];
 const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
 
@@ -48,6 +58,7 @@ export default function DriversPage() {
   const [search, setSearch] = useState("");
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState<NewDriverForm>(BLANK_FORM);
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -63,23 +74,48 @@ export default function DriversPage() {
     ? Math.round(allDrivers.items.reduce((s, d) => s + d.safety_score, 0) / allDrivers.items.length)
     : 0;
 
-  async function handleAddDriver(e: React.SyntheticEvent) {
+  function update(patch: Partial<NewDriverForm>) {
+    setForm((prev) => ({ ...prev, ...patch }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch)) delete next[key];
+      return next;
+    });
+  }
+
+  function closeAdd() {
+    setIsAddOpen(false);
+    setForm(BLANK_FORM);
+    setErrors({});
+    setFormError(null);
+  }
+
+  async function handleAddDriver(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+
+    const found = validateDriver(form);
+    if (hasErrors(found)) {
+      setErrors(found);
+      setFormError("Some details need fixing.");
+      return;
+    }
+    setErrors({});
     setSubmitting(true);
+
     try {
       await api.drivers.create({
-        name: form.name,
-        phone: form.phone || undefined,
-        license_number: form.license_number,
+        name: form.name.trim(),
+        phone: form.phone.trim() || undefined,
+        license_number: form.license_number.trim().toUpperCase(),
         license_category: form.license_category,
         license_expiry_date: form.license_expiry_date,
       });
-      setIsAddOpen(false);
-      setForm(BLANK_FORM);
+      closeAdd();
       reload();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Failed to add driver");
+      setErrors(fieldErrorsFrom(err));
+      setFormError(formMessageFrom(err, "Failed to add driver"));
     } finally {
       setSubmitting(false);
     }
@@ -197,46 +233,57 @@ export default function DriversPage() {
 
       <Modal
         isOpen={isAddOpen}
-        onClose={() => setIsAddOpen(false)}
+        onClose={closeAdd}
         title="Add Driver"
         footer={
           <>
-            <button className="btn btn-outline-muted" onClick={() => setIsAddOpen(false)}>
+            <button className="btn btn-outline-muted" onClick={closeAdd}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={handleAddDriver} disabled={submitting}>
+            <button className="btn btn-primary" type="submit" form={FORM_ID} disabled={submitting}>
               {submitting ? "Saving…" : "Save Driver"}
             </button>
           </>
         }
       >
-        <form className="form-grid" onSubmit={handleAddDriver}>
-          <div className="field span-2">
-            <label className="label">Full Name</label>
+        <form className="form-grid" id={FORM_ID} onSubmit={handleAddDriver} noValidate>
+          <RequiredLegend />
+
+          {formError ? <FormAlert message={formError} count={Object.keys(errors).length} /> : null}
+
+          <Field id="driver_name" label="Full Name" required error={errors.name} span2>
             <input
               className="input"
               placeholder="Raj Mehta"
               value={form.name}
-              onChange={(e) => setForm({ ...form, name: e.target.value })}
-              required
+              onChange={(e) => update({ name: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label className="label">License Number</label>
+          </Field>
+
+          <Field
+            id="license_number"
+            label="License Number"
+            required
+            error={errors.license_number}
+          >
             <input
               className="input"
               placeholder="GJ0120220041233"
               value={form.license_number}
-              onChange={(e) => setForm({ ...form, license_number: e.target.value })}
-              required
+              onChange={(e) => update({ license_number: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label className="label">License Category</label>
+          </Field>
+
+          <Field
+            id="license_category"
+            label="License Category"
+            required
+            error={errors.license_category}
+          >
             <select
               className="select"
               value={form.license_category}
-              onChange={(e) => setForm({ ...form, license_category: e.target.value as LicenseCategory })}
+              onChange={(e) => update({ license_category: e.target.value as LicenseCategory })}
             >
               {LICENSE_CATEGORIES.map((c) => (
                 <option key={c} value={c}>
@@ -244,31 +291,32 @@ export default function DriversPage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="field">
-            <label className="label">License Expiry Date</label>
+          </Field>
+
+          <Field
+            id="license_expiry_date"
+            label="License Expiry Date"
+            required
+            error={errors.license_expiry_date}
+            // An expired licence is savable but not dispatchable — advise, don't block.
+            warning={licenseExpiryWarning(form.license_expiry_date)}
+          >
             <input
               className="input"
               type="date"
               value={form.license_expiry_date}
-              onChange={(e) => setForm({ ...form, license_expiry_date: e.target.value })}
-              required
+              onChange={(e) => update({ license_expiry_date: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label className="label">Phone</label>
+          </Field>
+
+          <Field id="phone" label="Phone" error={errors.phone}>
             <input
               className="input"
               placeholder="+91 98250 11223"
               value={form.phone}
-              onChange={(e) => setForm({ ...form, phone: e.target.value })}
+              onChange={(e) => update({ phone: e.target.value })}
             />
-          </div>
-          {formError ? (
-            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
-              {formError}
-            </p>
-          ) : null}
+          </Field>
         </form>
       </Modal>
     </AppShell>
