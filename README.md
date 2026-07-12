@@ -40,11 +40,12 @@ An end-to-end transport operations platform that digitizes vehicle, driver, disp
 
 | Layer | Technology |
 |---|---|
-| Frontend | Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/ui |
-| Visualization | MapLibre GL JS + deck.gl (animated trips map) · Recharts (analytics) |
+| Frontend | Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 (hand-rolled design system, HP Electric Blue) |
+| Visualization | Leaflet (live-animated trips map via SSE) · hand-rolled SVG charts |
+| Validation | Zod (client) mirroring FastAPI/Pydantic (server) — cargo-vs-capacity, required fields, etc. |
 | Backend | FastAPI (Python 3.13, managed by uv) · REST + Server-Sent Events |
 | Database | PostgreSQL 18 (Docker) · SQLAlchemy 2.0 · Alembic migrations · SQLite fallback |
-| Auth | JWT (httpOnly cookie) with Role-Based Access Control — 4 roles |
+| Auth | JWT (httpOnly cookie) with Role-Based Access Control — 4 roles, enforced server-side |
 
 ## Repository Structure
 
@@ -57,7 +58,29 @@ scripts/    dev.sh (one-command dev stack) and ops helpers
 
 ## Features
 
-_[To be added as the application takes shape]_
+- **Auth & RBAC** — JWT login, 4 roles (Fleet Manager, Dispatcher, Safety Officer, Financial
+  Analyst); every write endpoint is role-gated server-side, and the UI hides actions a role
+  can't perform (see the Settings page's capability matrix for the exact mapping).
+- **Fleet & driver registry** — full CRUD (create, edit, view) with document tracking and
+  computed health/performance metrics.
+- **Trip dispatch** — creation wizard with a live vehicle-capacity meter (cargo can never
+  exceed the selected vehicle's max load, enforced client- and server-side), dispatch/complete/
+  cancel lifecycle, and AI-scored vehicle+driver suggestions for draft trips.
+- **Maintenance workflow** — opening a job moves the vehicle to *In Shop* and out of the
+  dispatch pool; closing it restores *Available* (unless retired) — both live from the vehicle
+  detail page.
+- **Fuel & expense logging** with an auto-computed total operational cost per vehicle
+  (fuel + maintenance + other).
+- **Live dashboard & map** — KPIs and the fleet map update in real time via Server-Sent Events
+  as trips progress, dispatch, or complete — no manual refresh, no static data.
+- **Analytics & reports** — fleet utilization, fuel efficiency, cost/km, ROI, weekly trends, and
+  CSV export (fleet / trips / expenses).
+- **Deterministic seed data** — one command populates a realistic fleet (25 vehicles, 20
+  drivers — including intentionally expired licenses and a suspended driver to demo the
+  blocking rules, 60+ trips, fuel logs, expenses, and alerts).
+
+**Out of scope for this build:** PDF export, email reminders for expiring licenses (in-app
+alerts exist instead), and a full light theme (the design system is dark-only by design).
 
 ## Getting Started
 
@@ -65,9 +88,10 @@ _[To be added as the application takes shape]_
 
 - Node.js ≥ 20 (tested on 22)
 - [uv](https://docs.astral.sh/uv/) ≥ 0.9 (auto-installs Python 3.13)
-- Docker + Compose v2 (for PostgreSQL — optional, SQLite fallback available)
+- **Docker + Compose v2** for PostgreSQL — **optional**, see "Don't have Docker?" below for a
+  fully-tested SQLite path that needs zero containers.
 
-### Quick start (one command)
+### Quick start (one command, with Docker)
 
 ```bash
 git clone https://github.com/patelsahil2k03/innovatrix-odoo-hackathon-2026.git
@@ -78,19 +102,83 @@ cd innovatrix-odoo-hackathon-2026
 That single command creates `.env` from the template, starts PostgreSQL in Docker (waits for
 health), then runs the API (`http://localhost:8000` — docs at `/docs`) and the web app
 (`http://localhost:3000`) with hot reload. `Ctrl+C` stops everything.
-No Docker? `./scripts/dev.sh --no-db` with the SQLite `DATABASE_URL` from `.env.example`.
+
+**Don't have Docker installed?** Get it here, then use the command above as normal:
+[Docker Desktop](https://www.docker.com/products/docker-desktop/) (Windows/Mac) ·
+[Docker Engine](https://docs.docker.com/engine/install/) (Linux). Or skip Docker entirely —
+next section.
+
+### Don't have Docker at all? Use SQLite instead (verified working, zero containers)
+
+`./scripts/dev.sh --no-db` only skips *starting* the Postgres container — it does **not**
+change which database the app points at. You must also switch `DATABASE_URL` in `.env`
+yourself:
+
+```bash
+git clone https://github.com/patelsahil2k03/innovatrix-odoo-hackathon-2026.git
+cd innovatrix-odoo-hackathon-2026
+cp .env.example .env
+```
+
+Then edit `.env`: comment out the `DATABASE_URL=postgresql+psycopg://...` line and uncomment
+the `DATABASE_URL=sqlite:///./transitops.db` line right below it. Then:
+
+```bash
+./scripts/dev.sh --no-db
+```
+
+This has been tested end-to-end (migrations, seed, and the API all run identically against
+SQLite) — nothing else needs to change.
+
+**First run only** — apply migrations and seed demo data (in a second terminal, once the API is up):
+
+```bash
+cd backend && uv run alembic upgrade head && uv run python -m transitops.seed
+```
+
+This prints four demo logins (one per role) with a shared password to stdout — use them to sign
+in at `http://localhost:3000/login` and see each role's different permissions:
+
+| Email | Password | Role | Name | Focus |
+|---|---|---|---|---|
+| fleet@transitops.in | Demo@1234 | Fleet Manager | Rahul Kapoor | Vehicles, Maintenance |
+| dispatch@transitops.in | Demo@1234 | Dispatcher | Sneha Iyer | Trips, Costs |
+| safety@transitops.in | Demo@1234 | Safety Officer | Anil Deshmukh | Drivers, Compliance |
+| finance@transitops.in | Demo@1234 | Financial Analyst | Meera Nair | Costs, Reports |
+
+### Root task-runner shortcuts
+
+A root `package.json` wraps the same commands as `npm run <script>` if you prefer not to juggle
+directories:
+
+```bash
+npm run dev            # same as ./scripts/dev.sh
+npm run be:migrate      # backend: alembic upgrade head
+npm run be:seed         # backend: seed demo data
+npm run be:test         # backend: pytest
+npm run fe:build        # frontend: production build
+npm run kill:ports      # free ports 3000/8000/8001 if a previous run didn't exit cleanly
+```
 
 ### Running pieces manually
 
 ```bash
-# Database
+# Database — Docker path
 docker compose -f infra/docker-compose.yml up -d db
+# No Docker? Skip this and set DATABASE_URL=sqlite:///./transitops.db in .env instead —
+# the next three commands work identically either way.
 
 # Backend (from backend/)
-uv sync && uv run uvicorn transitops.main:app --reload   # http://localhost:8000/docs
+uv sync
+uv run alembic upgrade head
+uv run python -m transitops.seed          # first run only — prints demo logins
+uv run uvicorn transitops.main:app --reload   # http://localhost:8000/docs
 
 # Frontend (from frontend/)
-npm install && npm run dev                               # http://localhost:3000
+npm install && npm run dev                # http://localhost:3000
+
+# Reset to a fresh, fully-seeded demo state at any time
+./scripts/demo-reset.sh
 
 # Tests
 cd backend && uv run pytest
