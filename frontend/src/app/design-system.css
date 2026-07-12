@@ -39,6 +39,8 @@
   --color-info: #4c98b9;
   --color-success: #03904a;
   --color-warning: #f13a2c;
+  --color-caution: #c8850a; /* mid-severity amber — validated (dataviz palette script) against
+                                success/warning on both dark and light surfaces */
 
   /* Spacing ladder (8px system, explicit named tokens) */
   --space-xxxs: 4px;
@@ -1116,6 +1118,13 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
 .grid-2{ display: grid; grid-template-columns: 2fr 1fr; gap: var(--space-md); align-items: start; }
 .grid-2col-even{ display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-md); align-items: start; }
 
+/* Grid items are `min-width: auto` by default, so a column holding a wide table (data-table
+   carries a 640px min-width) refuses to shrink and stretches the grid past the viewport — which
+   is what pushed the AI Suggestions panel, and its "Use" button, off the right edge behind a
+   horizontal scrollbar. Letting the columns shrink hands the overflow to .table-scroll, which
+   already knows how to scroll a table inside its own box. */
+.grid-2 > *, .grid-2col-even > *{ min-width: 0; }
+
 .stack{ display: flex; flex-direction: column; gap: var(--space-xs); }
 .stack-sm{ display: flex; flex-direction: column; gap: var(--space-xxs); }
 
@@ -1158,6 +1167,9 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
 .match-score .num{ display:block; }
 .match-body{ flex: 1; min-width: 0; }
 .match-reason{ color: var(--color-body); margin-top: 4px; }
+
+/* The action is the point of the card — never let the reasons text squeeze it out of view. */
+.match-card .btn{ flex-shrink: 0; }
 
 /* ---- Alert feed ----------------------------------------------------------- */
 
@@ -1339,26 +1351,92 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
 .trend-chart .trend-line{ fill: none; stroke: var(--color-primary); stroke-width: 2; }
 .trend-chart .trend-dot{ fill: var(--color-primary); }
 .trend-chart .axis-label{ fill: var(--color-muted-soft); font-size: 10px; font-family: var(--font-family); }
+.trend-chart .axis-value-label{ fill: var(--color-muted-soft); font-size: 10px; font-family: var(--font-family); }
 
-.bucket-chart{ display: flex; align-items: flex-end; gap: var(--space-sm); height: 180px; padding-top: var(--space-sm); }
-.bucket-col{ flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end; height: 100%; gap: var(--space-xxs); }
-.bucket-count{ color: var(--color-ink); }
-.bucket-bar{ width: 100%; max-width: 56px; background: var(--color-muted-soft); transition: height .2s ease; }
-.bucket-bar.b-critical{ background: var(--color-warning); }
-.bucket-bar.b-medium{ background: #d99a1f; }
-.bucket-bar.b-good{ background: var(--color-success); }
-.bucket-label{ color: var(--color-muted-soft); text-align: center; }
+/* ---- Health score distribution (proportional stacked bar) --------------- */
 
-.leaderboard-row{ display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-xxs) 0; border-bottom: 1px solid var(--color-hairline); }
+.dist-bar{
+  display: flex;
+  gap: 2px;
+  height: 20px;
+  border-radius: var(--radius-full);
+  overflow: hidden;
+  background: var(--color-canvas);
+}
+
+.dist-segment{ height: 100%; transition: flex-basis .2s ease; }
+.dist-segment.b-good{ background: var(--color-success); }
+.dist-segment.b-medium{ background: var(--color-caution); }
+.dist-segment.b-critical{ background: var(--color-warning); }
+
+.dist-legend{
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-sm) var(--space-md);
+  margin-top: var(--space-sm);
+}
+
+.dist-legend-item{ display: flex; align-items: center; gap: var(--space-xxxs); }
+
+.dist-dot{ width: 8px; height: 8px; border-radius: var(--radius-full); flex-shrink: 0; }
+.dist-dot.b-good{ background: var(--color-success); }
+.dist-dot.b-medium{ background: var(--color-caution); }
+.dist-dot.b-critical{ background: var(--color-warning); }
+
+/* ---- Driver safety score leaderboard ------------------------------------- */
+
+.leaderboard-row{ display: flex; align-items: center; gap: var(--space-xs); padding: var(--space-xs) 0; border-bottom: 1px solid var(--color-hairline); }
 .leaderboard-row:last-child{ border-bottom: none; }
-.leaderboard-rank{ width: 20px; color: var(--color-muted-soft); flex-shrink: 0; }
-.leaderboard-name{ width: 130px; flex-shrink: 0; }
-.leaderboard-row .meter{ flex: 1; }
-.leaderboard-value{ width: 44px; text-align: right; flex-shrink: 0; }
+
+.leaderboard-rank{
+  width: 22px;
+  height: 22px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--color-muted-soft);
+}
+
+.leaderboard-rank.is-top{ background: var(--color-primary-soft); color: var(--color-primary-active); }
+.leaderboard-rank.is-first{ background: var(--color-primary); color: var(--color-on-primary); }
+
+.leaderboard-avatar{
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-full);
+  background: var(--color-canvas-elevated);
+  border: 1px solid var(--color-hairline);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 12px;
+  flex-shrink: 0;
+}
+
+.leaderboard-name{ flex: 1; min-width: 0; }
+.leaderboard-name .text-body-sm{ overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.leaderboard-meter{ width: 100px; flex-shrink: 0; }
+
+.leaderboard-value{ width: 48px; text-align: right; flex-shrink: 0; }
+.leaderboard-value .text-title-sm{ font-variant-numeric: tabular-nums; }
 
 /* ==========================================================================
    Responsive
    ========================================================================== */
+
+/* The 2fr/1fr split only earns its keep on a genuinely wide screen: below this the side panel
+   is squeezed to ~300px, where the suggestion cards wrap to shreds and the table has to scroll
+   anyway. Stack instead — the panel then gets full width and its "Use" buttons are plainly in
+   view rather than hiding past the right edge. */
+@media (max-width: 1280px){
+  .grid-2{ grid-template-columns: 1fr; }
+}
 
 @media (max-width: 1024px){
   .kpi-grid{ grid-template-columns: repeat(2, 1fr); }
