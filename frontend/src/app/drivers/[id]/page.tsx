@@ -7,8 +7,12 @@ import { Tabs } from "@/components/ui/tabs";
 import { Meter } from "@/components/ui/meter";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import { DriverStatusBadge, TripStatusBadge, DocumentStatusBadge } from "@/components/ui/status-badge";
-import { api, type VehicleOut } from "@/lib/api";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { SearchIcon } from "@/components/icons";
+import { api, type VehicleOut, type DriverDocumentOut, type TripOut } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
+import { usePagedRows } from "@/lib/use-paged-rows";
 import { fmtMoney, fmtDate, fmtDateTime, healthMeterClass, DOCUMENT_TYPE_LABELS } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import { canWriteDrivers, canWriteTrips } from "@/lib/roles";
@@ -35,6 +39,25 @@ export default function DriverDetailPage() {
     [data]
   );
 
+  const documentsPaged = usePagedRows<DriverDocumentOut>(data?.documents ?? [], {
+    searchFields: (d) => [d.document_number, DOCUMENT_TYPE_LABELS[d.document_type]],
+    sortFns: {
+      document_type: (a, b) => a.document_type.localeCompare(b.document_type),
+      expiry_date: (a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime(),
+      status: (a, b) => a.status.localeCompare(b.status),
+    },
+    defaultSort: "expiry_date",
+  });
+  const tripsPaged = usePagedRows<TripOut>(data?.trips ?? [], {
+    searchFields: (t) => [t.source_city, t.dest_city],
+    sortFns: {
+      revenue: (a, b) => a.revenue - b.revenue,
+      status: (a, b) => a.status.localeCompare(b.status),
+      dispatched_at: (a, b) =>
+        new Date(a.dispatched_at ?? 0).getTime() - new Date(b.dispatched_at ?? 0).getTime(),
+    },
+  });
+
   if (loading) {
     return (
       <AppShell eyebrow="Drivers" title="Loading…" backHref="/drivers">
@@ -51,7 +74,7 @@ export default function DriverDetailPage() {
     );
   }
 
-  const { driver, documents, trips } = data;
+  const { driver } = data;
   const { performance } = driver;
 
   return (
@@ -153,21 +176,35 @@ export default function DriverDetailPage() {
             id: "documents",
             label: "Documents",
             content: (
+              <div>
+                <div className="table-toolbar table-toolbar-tab">
+                  <div className="search-field">
+                    <SearchIcon />
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Search documents…"
+                      value={documentsPaged.query}
+                      onChange={(e) => documentsPaged.updateQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
               <div className="table-wrap">
+                <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Document Type</th>
+                      <SortableTh label="Document Type" field="document_type" sort={documentsPaged.sort} onSort={documentsPaged.toggleSort} />
                       <th>Number</th>
-                      <th>Expiry Date</th>
-                      <th>Status</th>
+                      <SortableTh label="Expiry Date" field="expiry_date" sort={documentsPaged.sort} onSort={documentsPaged.toggleSort} />
+                      <SortableTh label="Status" field="status" sort={documentsPaged.sort} onSort={documentsPaged.toggleSort} />
                     </tr>
                   </thead>
                   <tbody>
-                    {documents.length === 0 ? (
+                    {documentsPaged.pageRows.length === 0 ? (
                       <TableRowState colSpan={4}>No documents on file.</TableRowState>
                     ) : (
-                      documents.map((d) => (
+                      documentsPaged.pageRows.map((d) => (
                         <tr key={d.id}>
                           <td className="cell-strong">{DOCUMENT_TYPE_LABELS[d.document_type] ?? d.document_type}</td>
                           <td className="cell-muted">{d.document_number ?? "—"}</td>
@@ -180,6 +217,14 @@ export default function DriverDetailPage() {
                     )}
                   </tbody>
                 </table>
+                </div>
+                <Pagination
+                  page={documentsPaged.page}
+                  pageSize={documentsPaged.pageSize}
+                  total={documentsPaged.total}
+                  onPageChange={documentsPaged.setPage}
+                />
+              </div>
               </div>
             ),
           },
@@ -187,22 +232,36 @@ export default function DriverDetailPage() {
             id: "trips",
             label: "Trips",
             content: (
+              <div>
+                <div className="table-toolbar table-toolbar-tab">
+                  <div className="search-field">
+                    <SearchIcon />
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Search route…"
+                      value={tripsPaged.query}
+                      onChange={(e) => tripsPaged.updateQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
               <div className="table-wrap">
+                <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
                       <th>Route</th>
                       <th>Vehicle</th>
-                      <th>Revenue</th>
-                      <th>Status</th>
-                      <th>Dispatched</th>
+                      <SortableTh label="Revenue" field="revenue" sort={tripsPaged.sort} onSort={tripsPaged.toggleSort} />
+                      <SortableTh label="Status" field="status" sort={tripsPaged.sort} onSort={tripsPaged.toggleSort} />
+                      <SortableTh label="Dispatched" field="dispatched_at" sort={tripsPaged.sort} onSort={tripsPaged.toggleSort} />
                     </tr>
                   </thead>
                   <tbody>
-                    {trips.length === 0 ? (
+                    {tripsPaged.pageRows.length === 0 ? (
                       <TableRowState colSpan={5}>No trips recorded for this driver.</TableRowState>
                     ) : (
-                      trips.map((t) => {
+                      tripsPaged.pageRows.map((t) => {
                         const vehicle = vehicleById.get(t.vehicle_id);
                         return (
                           <tr key={t.id}>
@@ -221,6 +280,14 @@ export default function DriverDetailPage() {
                     )}
                   </tbody>
                 </table>
+                </div>
+                <Pagination
+                  page={tripsPaged.page}
+                  pageSize={tripsPaged.pageSize}
+                  total={tripsPaged.total}
+                  onPageChange={tripsPaged.setPage}
+                />
+              </div>
               </div>
             ),
           },

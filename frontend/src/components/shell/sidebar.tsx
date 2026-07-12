@@ -9,11 +9,12 @@ import {
   DriversIcon,
   TripsIcon,
   AnalyticsIcon,
+  LogoutIcon,
 } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { initials } from "@/lib/format";
 import { ROLE_LABELS } from "@/lib/roles";
-import { ThemeToggle } from "@/components/ui/theme-toggle";
+import { SidebarCollapseToggle } from "@/components/ui/sidebar-collapse-toggle";
 
 interface NavItem {
   href: string;
@@ -53,9 +54,10 @@ export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: (
 
   return (
     <aside className={`sidebar ${isOpen ? "is-open" : ""}`} data-sidebar>
+      <SidebarCollapseToggle />
       <div className="sidebar-brand">
         <div className="sidebar-brand-mark">T</div>
-        <div>
+        <div className="sidebar-brand-text">
           <div className="sidebar-brand-name">TransitOps</div>
           <div className="sidebar-brand-sub">
             {user ? ROLE_LABELS[user.role] ?? user.role : "—"}
@@ -72,9 +74,10 @@ export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: (
                 href={href}
                 className={`sidebar-link ${isActive(href) ? "is-active" : ""}`}
                 onClick={onNavigate}
+                title={label}
               >
                 <Icon className="icon" />
-                {label}
+                <span className="sidebar-link-label">{label}</span>
               </Link>
             ))}
           </div>
@@ -87,11 +90,14 @@ export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: (
             <div className="sidebar-user-name">{user?.full_name ?? "—"}</div>
             <div className="sidebar-user-role">{user ? ROLE_LABELS[user.role] ?? user.role : ""}</div>
           </div>
-        </div>
-        <div className="sidebar-footer-actions">
-          <ThemeToggle />
-          <button className="btn-text text-body-sm sidebar-logout" onClick={logout} aria-label="Sign out">
-            Sign out
+          <button
+            className="sidebar-signout-btn"
+            onClick={logout}
+            aria-label="Sign out"
+            title="Sign out"
+          >
+            <LogoutIcon className="icon" />
+            <span className="sidebar-logout-label">Sign out</span>
           </button>
         </div>
       </div>
