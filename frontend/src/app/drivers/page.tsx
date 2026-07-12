@@ -8,6 +8,8 @@ import { Modal } from "@/components/ui/modal";
 import { Field, FormAlert, RequiredLegend } from "@/components/ui/field";
 import { DriverStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableTh } from "@/components/ui/sortable-th";
 import { PlusIcon, SearchIcon } from "@/components/icons";
 import { api, type LicenseCategory } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
@@ -26,11 +28,12 @@ import {
 const FORM_ID = "add-driver-form";
 const LICENSE_CATEGORIES: LicenseCategory[] = ["LMV", "HMV", "TRANS"];
 const THIRTY_DAYS_MS = 1000 * 60 * 60 * 24 * 30;
+const PAGE_SIZE = 10;
 
-async function loadDrivers(status: string, search: string) {
+async function loadDrivers(status: string, search: string, sort: string, page: number) {
   const [allDrivers, filtered] = await Promise.all([
     api.drivers.list({ page_size: 200 }),
-    api.drivers.list({ status: status || undefined, q: search || undefined, page_size: 100 }),
+    api.drivers.list({ status: status || undefined, q: search || undefined, sort, page, page_size: PAGE_SIZE }),
   ]);
   return { allDrivers, filtered, nowMs: Date.now() };
 }
@@ -56,13 +59,28 @@ export default function DriversPage() {
   const canAdd = canWriteDrivers(user?.role);
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("name");
+  const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState<NewDriverForm>(BLANK_FORM);
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const { data, loading, error, reload } = useFetch(() => loadDrivers(status, search), [status, search]);
+  function updateFilter(setter: (value: string) => void, value: string) {
+    setter(value);
+    setPage(1);
+  }
+
+  function toggleSort(field: string) {
+    setSort((prev) => (prev === field ? `-${field}` : field));
+    setPage(1);
+  }
+
+  const { data, loading, error, reload } = useFetch(
+    () => loadDrivers(status, search, sort, page),
+    [status, search, sort, page]
+  );
 
   const allDrivers = data?.allDrivers ?? null;
   const filtered = data?.filtered ?? null;
@@ -134,7 +152,7 @@ export default function DriversPage() {
 
       <div className="table-toolbar">
         <div className="table-filters">
-          <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select className="select" value={status} onChange={(e) => updateFilter(setStatus, e.target.value)}>
             <option value="">All Statuses</option>
             <option value="available">Available</option>
             <option value="on_trip">On Trip</option>
@@ -148,7 +166,7 @@ export default function DriversPage() {
               type="text"
               placeholder="Search name or license number…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => updateFilter(setSearch, e.target.value)}
             />
           </div>
         </div>
@@ -170,16 +188,17 @@ export default function DriversPage() {
         <ErrorBlock message={error} onRetry={reload} />
       ) : (
         <div className="table-wrap">
+          <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Driver</th>
-                <th>License No.</th>
-                <th>Category</th>
-                <th>License Expiry</th>
-                <th>Safety Score</th>
+                <SortableTh label="Driver" field="name" sort={sort} onSort={toggleSort} />
+                <SortableTh label="License No." field="license_number" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Category" field="license_category" sort={sort} onSort={toggleSort} />
+                <SortableTh label="License Expiry" field="license_expiry_date" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Safety Score" field="safety_score" sort={sort} onSort={toggleSort} />
                 <th>Rating</th>
-                <th>Status</th>
+                <SortableTh label="Status" field="status" sort={sort} onSort={toggleSort} />
                 <th></th>
               </tr>
             </thead>
@@ -228,6 +247,13 @@ export default function DriversPage() {
               )}
             </tbody>
           </table>
+          </div>
+          <Pagination
+            page={filtered?.page ?? 1}
+            pageSize={PAGE_SIZE}
+            total={filtered?.total ?? 0}
+            onPageChange={setPage}
+          />
         </div>
       )}
 

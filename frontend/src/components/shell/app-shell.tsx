@@ -6,6 +6,7 @@ import { Sidebar } from "./sidebar";
 import { MenuIcon, ArrowLeftIcon } from "@/components/icons";
 import { NotificationsPopover } from "@/components/notifications-popover";
 import { GlobalSearch } from "@/components/global-search";
+import { ThemeToggle } from "@/components/ui/theme-toggle";
 
 export function AppShell({
   eyebrow,
@@ -66,6 +67,7 @@ export function AppShell({
               <>
                 <GlobalSearch />
                 <NotificationsPopover />
+                <ThemeToggle />
               </>
             )}
           </div>
