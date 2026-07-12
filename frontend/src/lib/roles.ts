@@ -16,3 +16,21 @@ export const canWriteDrivers = (role?: string | null) => role === "safety_office
 export const canWriteTrips = (role?: string | null) => role === "dispatcher";
 export const canWriteCosts = (role?: string | null) => role === "dispatcher" || role === "financial_analyst";
 export const canWriteCompliance = (role?: string | null) => role === "safety_officer" || role === "fleet_manager";
+
+/** Nav items each role actually owns/uses day-to-day. This is a UX/decluttering decision, not a
+ * security boundary — the backend still permits reads for any authenticated role, so a hidden
+ * page is still reachable by direct URL. Financial Analyst has no CRUD anywhere (only
+ * canWriteCosts, which has no dedicated UI yet), so it only gets Dashboard + Analytics. */
+export const NAV_VISIBILITY_BY_ROLE: Record<Role, { vehicles: boolean; drivers: boolean; trips: boolean }> = {
+  fleet_manager: { vehicles: true, drivers: true, trips: true },
+  dispatcher: { vehicles: false, drivers: false, trips: true },
+  safety_officer: { vehicles: false, drivers: true, trips: false },
+  financial_analyst: { vehicles: false, drivers: false, trips: false },
+};
+
+export const DASHBOARD_TITLE_BY_ROLE: Record<Role, string> = {
+  fleet_manager: "Fleet Overview",
+  dispatcher: "Dispatch Console",
+  safety_officer: "Safety & Compliance",
+  financial_analyst: "Financial Overview",
+};

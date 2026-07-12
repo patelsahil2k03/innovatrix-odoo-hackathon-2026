@@ -1,17 +1,20 @@
 "use client";
 
 import { useEffect, useMemo } from "react";
+import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Meter } from "@/components/ui/meter";
 import { LoadingBlock, ErrorBlock, EmptyBlock } from "@/components/ui/async-state";
 import { FleetMap } from "@/components/fleet-map";
 import { TrendChart } from "@/components/revenue-trend-chart";
-import { api } from "@/lib/api";
+import { api, type FleetRow, type DriverOut } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
-import { fmtMoney, ratingFromSafetyScore } from "@/lib/format";
+import { fmtMoney, ratingFromSafetyScore, initials } from "@/lib/format";
 
 const AUTO_REFRESH_MS = 30_000;
+const SPOTLIGHT_COUNT = 5;
+const SPOTLIGHT_SPLIT_THRESHOLD = SPOTLIGHT_COUNT * 2;
 
 async function loadAnalytics() {
   const [kpis, fleet, trends, liveTrips, driversPage] = await Promise.all([
@@ -60,26 +63,68 @@ export default function AnalyticsPage() {
     () => (data ? [...data.fleet].sort((a, b) => b.utilization_pct - a.utilization_pct) : []),
     [data]
   );
+  const splitUtilization = utilizationRows.length > SPOTLIGHT_SPLIT_THRESHOLD;
+  const topUtilization = splitUtilization ? utilizationRows.slice(0, SPOTLIGHT_COUNT) : utilizationRows;
+  const bottomUtilization = splitUtilization ? utilizationRows.slice(-SPOTLIGHT_COUNT) : [];
 
   const buckets = useMemo(() => {
     const scores = (data?.fleet ?? []).map((f) => f.health_score);
     return [
-      { label: "Critical (0–45)", cls: "b-critical", count: scores.filter((s) => s <= 45).length },
-      { label: "Watch (46–75)", cls: "b-medium", count: scores.filter((s) => s > 45 && s <= 75).length },
-      { label: "Healthy (76–100)", cls: "b-good", count: scores.filter((s) => s > 75).length },
+      { key: "good", label: "Healthy", range: "76–100", cls: "b-good", count: scores.filter((s) => s > 75).length },
+      { key: "medium", label: "Watch", range: "46–75", cls: "b-medium", count: scores.filter((s) => s > 45 && s <= 75).length },
+      { key: "critical", label: "Critical", range: "0–45", cls: "b-critical", count: scores.filter((s) => s <= 45).length },
     ];
   }, [data]);
-  const maxBucket = Math.max(...buckets.map((b) => b.count), 1);
+  const totalHealthScored = buckets.reduce((s, b) => s + b.count, 0);
 
   const leaderboard = useMemo(
     () => (data ? [...data.drivers].sort((a, b) => b.safety_score - a.safety_score) : []),
     [data]
   );
+  const splitLeaderboard = leaderboard.length > SPOTLIGHT_SPLIT_THRESHOLD;
+  const topDrivers = splitLeaderboard ? leaderboard.slice(0, SPOTLIGHT_COUNT) : leaderboard;
+  const bottomDrivers = splitLeaderboard ? leaderboard.slice(-SPOTLIGHT_COUNT) : [];
 
   const fuelTrend = useMemo(
     () => (data?.trends.weekly ?? []).map((w) => ({ label: formatWeekLabel(w.period), value: w.fuel_cost })),
     [data]
   );
+
+  function utilizationRow(f: FleetRow) {
+    return (
+      <div className="health-row" key={f.vehicle_id}>
+        <div className="health-meta">
+          <div className="text-body-sm cell-strong">{f.registration_number}</div>
+        </div>
+        <Meter
+          value={f.utilization_pct}
+          className="w-[140px]"
+          fillClassName={f.utilization_pct >= 60 ? "is-success" : f.utilization_pct >= 30 ? "" : "is-warning"}
+        />
+        <div className="health-score text-title-sm">{f.utilization_pct}%</div>
+      </div>
+    );
+  }
+
+  function leaderboardRow(d: DriverOut, rank: number) {
+    const scoreClass = d.safety_score >= 80 ? "is-success" : d.safety_score >= 60 ? "" : "is-warning";
+    const scoreColor = scoreClass === "is-success" ? "u-success" : scoreClass === "is-warning" ? "u-warning" : "";
+    return (
+      <div className="leaderboard-row" key={d.id}>
+        <div className={`leaderboard-rank ${rank === 1 ? "is-first" : rank <= 3 ? "is-top" : ""}`}>{rank}</div>
+        <div className="leaderboard-avatar">{initials(d.name)}</div>
+        <div className="leaderboard-name">
+          <div className="text-body-sm cell-strong">{d.name}</div>
+          <div className="text-caption u-muted-soft">{d.license_category} License</div>
+        </div>
+        <Meter value={d.safety_score} className="leaderboard-meter" fillClassName={scoreClass} />
+        <div className="leaderboard-value">
+          <div className={`text-title-sm ${scoreColor}`}>{d.safety_score}</div>
+          <div className="text-caption u-muted-soft">{ratingFromSafetyScore(d.safety_score).toFixed(1)} ★</div>
+        </div>
+      </div>
+    );
+  }
 
   if (loading) {
     return (
@@ -175,24 +220,33 @@ export default function AnalyticsPage() {
             <h2 className="text-title-md" style={{ margin: 0 }}>
               Fleet Utilization
             </h2>
+            <Link href="/vehicles" className="btn-text text-body-sm">
+              View all vehicles →
+            </Link>
           </div>
           <div className="panel-body">
             {utilizationRows.length === 0 ? (
               <EmptyBlock label="No vehicles yet." />
             ) : (
-              utilizationRows.map((f) => (
-                <div className="health-row" key={f.vehicle_id}>
-                  <div className="health-meta">
-                    <div className="text-body-sm cell-strong">{f.registration_number}</div>
+              <>
+                {splitUtilization && (
+                  <div className="text-caption-uppercase u-muted-soft" style={{ marginBottom: "var(--space-xxs)" }}>
+                    Most utilized
                   </div>
-                  <Meter
-                    value={f.utilization_pct}
-                    className="w-[140px]"
-                    fillClassName={f.utilization_pct >= 60 ? "is-success" : f.utilization_pct >= 30 ? "" : "is-warning"}
-                  />
-                  <div className="health-score text-title-sm">{f.utilization_pct}%</div>
-                </div>
-              ))
+                )}
+                {topUtilization.map(utilizationRow)}
+                {splitUtilization && (
+                  <>
+                    <div
+                      className="text-caption-uppercase u-muted-soft"
+                      style={{ margin: "var(--space-xs) 0 var(--space-xxs)" }}
+                    >
+                      Least utilized
+                    </div>
+                    {bottomUtilization.map(utilizationRow)}
+                  </>
+                )}
+              </>
             )}
           </div>
         </div>
@@ -203,15 +257,35 @@ export default function AnalyticsPage() {
             </h2>
           </div>
           <div className="panel-body">
-            <div className="bucket-chart">
-              {buckets.map((b) => (
-                <div className="bucket-col" key={b.label}>
-                  <div className="bucket-count text-title-sm">{b.count}</div>
-                  <div className={`bucket-bar ${b.cls}`} style={{ height: `${(b.count / maxBucket) * 100}%` }} />
-                  <div className="bucket-label text-caption">{b.label}</div>
+            {totalHealthScored === 0 ? (
+              <EmptyBlock label="No vehicles yet." />
+            ) : (
+              <>
+                <div className="dist-bar">
+                  {buckets
+                    .filter((b) => b.count > 0)
+                    .map((b) => (
+                      <div
+                        key={b.key}
+                        className={`dist-segment ${b.cls}`}
+                        style={{ flexBasis: `${(b.count / totalHealthScored) * 100}%` }}
+                        title={`${b.label} (${b.range}): ${b.count} vehicle(s)`}
+                      />
+                    ))}
                 </div>
-              ))}
-            </div>
+                <div className="dist-legend">
+                  {buckets.map((b) => (
+                    <div className="dist-legend-item" key={b.key}>
+                      <span className={`dist-dot ${b.cls}`} />
+                      <span className="text-body-sm cell-strong">{b.label}</span>
+                      <span className="text-body-sm u-muted-soft">
+                        {b.count} · {Math.round((b.count / totalHealthScored) * 100)}%
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
@@ -221,19 +295,33 @@ export default function AnalyticsPage() {
           <h2 className="text-title-md" style={{ margin: 0 }}>
             Driver Safety Score Leaderboard
           </h2>
+          <Link href="/drivers" className="btn-text text-body-sm">
+            View all drivers →
+          </Link>
         </div>
         <div className="panel-body">
           {leaderboard.length === 0 ? (
             <EmptyBlock label="No drivers yet." />
           ) : (
-            leaderboard.map((d, i) => (
-              <div className="leaderboard-row" key={d.id}>
-                <div className="leaderboard-rank text-body-sm">#{i + 1}</div>
-                <div className="leaderboard-name text-body-sm cell-strong">{d.name}</div>
-                <Meter value={d.safety_score} fillClassName={d.safety_score >= 80 ? "is-success" : d.safety_score >= 60 ? "" : "is-warning"} />
-                <div className="leaderboard-value text-body-sm">{ratingFromSafetyScore(d.safety_score).toFixed(1)} ★</div>
-              </div>
-            ))
+            <>
+              {splitLeaderboard && (
+                <div className="text-caption-uppercase u-muted-soft" style={{ marginBottom: "var(--space-xxs)" }}>
+                  Top performers
+                </div>
+              )}
+              {topDrivers.map((d, i) => leaderboardRow(d, i + 1))}
+              {splitLeaderboard && (
+                <>
+                  <div
+                    className="text-caption-uppercase u-muted-soft"
+                    style={{ margin: "var(--space-xs) 0 var(--space-xxs)" }}
+                  >
+                    Needs coaching
+                  </div>
+                  {bottomDrivers.map((d, i) => leaderboardRow(d, leaderboard.length - SPOTLIGHT_COUNT + i + 1))}
+                </>
+              )}
+            </>
           )}
         </div>
       </div>
