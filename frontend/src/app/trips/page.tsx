@@ -15,10 +15,12 @@ import {
   type DriverOut,
   type Suggestion,
 } from "@/lib/api";
+import { Meter } from "@/components/ui/meter";
 import { useAuth } from "@/lib/auth-context";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtMoney, fmtDateTime, fmtNumber } from "@/lib/format";
 import { can } from "@/lib/rbac";
+import { tripFormSchema, fieldErrorsFrom } from "@/lib/validation";
 
 async function loadTrips(statusFilter: string) {
   const [allPage, filteredPage, vehiclesPage, driversPage] = await Promise.all([
@@ -74,6 +76,7 @@ export default function TripsPage() {
   const [isNewTripOpen, setIsNewTripOpen] = useState(false);
   const [form, setForm] = useState<NewTripForm>(BLANK_TRIP);
   const [formError, setFormError] = useState<string | null>(null);
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const [rowError, setRowError] = useState<string | null>(null);
@@ -82,12 +85,27 @@ export default function TripsPage() {
 
   const { data, loading, error, reload } = useFetch(() => loadTrips(status), [status]);
 
+  // Re-run whenever the typed cargo weight changes so the vehicle picker only ever offers
+  // vehicles that can actually take the load — was previously hardcoded to 0, which silently
+  // defeated the capacity filter (docs/04_API_CONTRACT.md's `/vehicles/dispatchable?cargo_weight_kg=`).
+  const cargoKg = Number(form.cargo_weight_kg) || 0;
   const { data: candidates, loading: candidatesLoading } = useFetch(
-    () => (isNewTripOpen ? Promise.all([api.vehicles.dispatchable(0), api.drivers.assignable()]) : Promise.resolve([[], []] as [VehicleOut[], DriverOut[]])),
-    [isNewTripOpen]
+    () =>
+      isNewTripOpen
+        ? Promise.all([api.vehicles.dispatchable(cargoKg), api.drivers.assignable()])
+        : Promise.resolve([[], []] as [VehicleOut[], DriverOut[]]),
+    [isNewTripOpen, cargoKg]
   );
   const candidateVehicles = candidates?.[0] ?? [];
   const candidateDrivers = candidates?.[1] ?? [];
+
+  // If the picked vehicle drops out of the refreshed (capacity-filtered) list — e.g. the user
+  // raised the cargo weight past what it can carry — treat the selection as cleared. This is
+  // derived at render time rather than synced back into `form` via an effect+setState, so the
+  // <select> and the submit payload both use `effectiveVehicleId`/`selectedVehicle` instead of
+  // the possibly-stale `form.vehicle_id`.
+  const selectedVehicle = candidateVehicles.find((v) => v.id === form.vehicle_id);
+  const effectiveVehicleId = selectedVehicle ? form.vehicle_id : "";
 
   const vehicleById = useMemo(() => new Map((data?.vehicles ?? []).map((v) => [v.id, v])), [data]);
   const driverById = useMemo(() => new Map((data?.drivers ?? []).map((d) => [d.id, d])), [data]);
@@ -102,22 +120,38 @@ export default function TripsPage() {
   async function handleCreateTrip(e: React.SyntheticEvent) {
     e.preventDefault();
     setFormError(null);
+    setFieldErrors({});
+
+    const parsed = tripFormSchema.safeParse({ ...form, vehicle_id: effectiveVehicleId });
+    if (!parsed.success) {
+      setFieldErrors(fieldErrorsFrom(parsed.error));
+      return;
+    }
+
+    // Cross-field rule (docs/04_API_CONTRACT.md §4): cargo must not exceed the selected
+    // vehicle's capacity. The dispatchable-vehicles fetch already filters by cargoKg, so this
+    // should be unreachable in practice — kept as a safety net for the gap between typing and
+    // the refetch settling.
+    if (selectedVehicle && parsed.data.cargo_weight_kg > selectedVehicle.max_load_capacity_kg) {
+      setFieldErrors({
+        cargo_weight_kg: `Exceeds ${selectedVehicle.registration_number}'s capacity (${selectedVehicle.max_load_capacity_kg} kg)`,
+      });
+      return;
+    }
+
     setSubmitting(true);
     try {
-      await api.trips.create({
-        vehicle_id: form.vehicle_id,
-        driver_id: form.driver_id,
-        source_city: form.source_city,
-        dest_city: form.dest_city,
-        cargo_weight_kg: Number(form.cargo_weight_kg),
-        planned_distance_km: form.planned_distance_km ? Number(form.planned_distance_km) : undefined,
-        revenue: form.revenue ? Number(form.revenue) : undefined,
-      });
+      await api.trips.create(parsed.data);
       setIsNewTripOpen(false);
       setForm(BLANK_TRIP);
       reload();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Failed to create trip");
+      if (err instanceof ApiError) {
+        setFormError(err.message);
+        if (err.fields) setFieldErrors(err.fields);
+      } else {
+        setFormError("Failed to create trip");
+      }
     } finally {
       setSubmitting(false);
     }
@@ -140,6 +174,13 @@ export default function TripsPage() {
     await runAction(tripId, () =>
       api.trips.update(tripId, { vehicle_id: s.vehicle.id, driver_id: s.driver.id })
     );
+  }
+
+  function closeNewTrip() {
+    setIsNewTripOpen(false);
+    setForm(BLANK_TRIP);
+    setFormError(null);
+    setFieldErrors({});
   }
 
   return (
@@ -336,11 +377,11 @@ export default function TripsPage() {
 
       <Modal
         isOpen={isNewTripOpen}
-        onClose={() => setIsNewTripOpen(false)}
+        onClose={closeNewTrip}
         title="Create Trip"
         footer={
           <>
-            <button className="btn btn-outline-muted" onClick={() => setIsNewTripOpen(false)}>
+            <button className="btn btn-outline-muted" onClick={closeNewTrip}>
               Cancel
             </button>
             <button className="btn btn-primary" onClick={handleCreateTrip} disabled={submitting || candidatesLoading}>
@@ -359,6 +400,7 @@ export default function TripsPage() {
               onChange={(e) => setForm({ ...form, source_city: e.target.value })}
               required
             />
+            {fieldErrors.source_city && <p className="field-error">{fieldErrors.source_city}</p>}
           </div>
           <div className="field">
             <label className="label">Destination City</label>
@@ -369,6 +411,7 @@ export default function TripsPage() {
               onChange={(e) => setForm({ ...form, dest_city: e.target.value })}
               required
             />
+            {fieldErrors.dest_city && <p className="field-error">{fieldErrors.dest_city}</p>}
           </div>
           <div className="field">
             <label className="label">Cargo Weight (kg)</label>
@@ -380,6 +423,22 @@ export default function TripsPage() {
               onChange={(e) => setForm({ ...form, cargo_weight_kg: e.target.value })}
               required
             />
+            {selectedVehicle && cargoKg > 0 ? (
+              <>
+                <Meter
+                  value={Math.min(100, (cargoKg / selectedVehicle.max_load_capacity_kg) * 100)}
+                 
+                  fillClassName={cargoKg > selectedVehicle.max_load_capacity_kg ? "is-warning" : ""}
+                />
+                <p className="text-caption u-muted-soft">
+                  {cargoKg} / {selectedVehicle.max_load_capacity_kg} kg capacity (
+                  {selectedVehicle.registration_number})
+                </p>
+              </>
+            ) : null}
+            {fieldErrors.cargo_weight_kg && (
+              <p className="field-error">{fieldErrors.cargo_weight_kg}</p>
+            )}
           </div>
           <div className="field">
             <label className="label">Planned Distance (km, optional)</label>
@@ -390,23 +449,33 @@ export default function TripsPage() {
               value={form.planned_distance_km}
               onChange={(e) => setForm({ ...form, planned_distance_km: e.target.value })}
             />
+            {fieldErrors.planned_distance_km && (
+              <p className="field-error">{fieldErrors.planned_distance_km}</p>
+            )}
           </div>
           <div className="field">
             <label className="label">Vehicle</label>
             <select
               className="select"
-              value={form.vehicle_id}
+              value={effectiveVehicleId}
               onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
               required
               disabled={candidatesLoading}
             >
-              <option value="">{candidatesLoading ? "Loading…" : "Select a vehicle"}</option>
+              <option value="">
+                {candidatesLoading
+                  ? "Loading…"
+                  : cargoKg > 0 && candidateVehicles.length === 0
+                    ? "No vehicle fits this cargo weight"
+                    : "Select a vehicle"}
+              </option>
               {candidateVehicles.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.registration_number} · {v.name_model}
+                  {v.registration_number} · {v.name_model} ({v.max_load_capacity_kg} kg)
                 </option>
               ))}
             </select>
+            {fieldErrors.vehicle_id && <p className="field-error">{fieldErrors.vehicle_id}</p>}
           </div>
           <div className="field">
             <label className="label">Driver</label>
@@ -424,6 +493,7 @@ export default function TripsPage() {
                 </option>
               ))}
             </select>
+            {fieldErrors.driver_id && <p className="field-error">{fieldErrors.driver_id}</p>}
           </div>
           <div className="field span-2">
             <label className="label">Revenue (₹, optional)</label>
