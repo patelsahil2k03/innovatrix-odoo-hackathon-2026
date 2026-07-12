@@ -9,10 +9,22 @@ class Settings(BaseSettings):
     app_name: str = "TransitOps API"
     api_prefix: str = "/api/v1"
     database_url: str = "postgresql+psycopg://transitops:transitops@localhost:5432/transitops"
+
     jwt_secret: str = "dev-only-change-me"
+    jwt_algorithm: str = "HS256"
     jwt_expires_minutes: int = 480
+    auth_cookie_name: str = "transitops_token"
+    # Cookies are cross-site (web :3000 → api :8000) but both are http://localhost in dev, where
+    # SameSite=none would require Secure=true and be dropped. Lax + same-host origins works.
+    auth_cookie_secure: bool = False
+
     simulator_enabled: bool = True
+    simulator_interval_seconds: float = 3.0
+
     cors_origins: list[str] = ["http://localhost:3000"]
+
+    # Demo password for every seeded account — printed by the seed script, shown on the login screen.
+    seed_password: str = "transitops123"
 
 
 @lru_cache
