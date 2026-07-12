@@ -32,7 +32,9 @@ Evaluator: Pawan Gupta
 
 ## Problem Statement
 
-_[To be added after selection — 12 Jul 2026, 08:30 AM]_
+**TransitOps — Smart Transport Operations Platform**
+
+An end-to-end transport operations platform that digitizes vehicle, driver, dispatch, maintenance, and expense management while enforcing business rules and providing operational insights.
 
 ## Tech Stack
 
