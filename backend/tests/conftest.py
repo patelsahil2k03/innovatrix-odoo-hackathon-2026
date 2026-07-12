@@ -20,6 +20,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from transitops.core import audit
 from transitops.core.database import Base, get_db
 from transitops.core.security import hash_password
 from transitops.main import create_app
@@ -36,13 +37,17 @@ PASSWORD = "test-password"
 
 
 @pytest.fixture
-def db_session():
+def db_session(monkeypatch):
     # StaticPool + a shared in-memory DB so the app and the test see the same connection.
     engine = create_engine(
         "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
     )
     Base.metadata.create_all(engine)
     TestSession = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+    # The audit middleware opens its own session (it runs outside request DI), so it has to be
+    # pointed at this same in-memory database or it would silently write nowhere.
+    monkeypatch.setattr(audit, "SessionLocal", TestSession)
 
     session = TestSession()
     try:

@@ -18,6 +18,7 @@ from transitops.schemas.vehicle import (
     VehicleCosts,
     VehicleCreate,
     VehicleDetail,
+    VehicleMetrics,
     VehicleOut,
     VehicleUpdate,
 )
@@ -127,10 +128,11 @@ def get_vehicle(
     _: User = Depends(get_current_user),
 ):
     vehicle = _get(db, vehicle_id)
-    detail = VehicleDetail.model_validate(vehicle)
-    detail.costs = VehicleCosts(**analytics.vehicle_costs(db, vehicle.id))
-    detail.metrics = analytics.vehicle_metrics(db, vehicle)
-    return detail
+    return VehicleDetail(
+        **VehicleOut.model_validate(vehicle).model_dump(),
+        costs=VehicleCosts(**analytics.vehicle_costs(db, vehicle.id)),
+        metrics=VehicleMetrics(**analytics.vehicle_metrics(db, vehicle)),
+    )
 
 
 @router.get("/{vehicle_id}/costs", response_model=VehicleCosts)

@@ -18,6 +18,7 @@ from transitops.schemas.driver import (
     DriverCreate,
     DriverDetail,
     DriverOut,
+    DriverPerformance,
     DriverUpdate,
 )
 from transitops.services import analytics
@@ -116,9 +117,10 @@ def get_driver(
     driver_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)
 ):
     driver = _get(db, driver_id)
-    detail = DriverDetail.model_validate(driver)
-    detail.performance = analytics.driver_performance(db, driver)
-    return detail
+    return DriverDetail(
+        **DriverOut.model_validate(driver).model_dump(),
+        performance=DriverPerformance(**analytics.driver_performance(db, driver)),
+    )
 
 
 @router.patch("/{driver_id}", response_model=DriverOut)

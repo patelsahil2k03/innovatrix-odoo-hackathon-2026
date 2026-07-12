@@ -145,9 +145,13 @@ def test_kpis_reflect_a_dispatch(client, as_dispatcher, make_trip):
     before = client.get("/api/v1/analytics/kpis", headers=as_dispatcher).json()
     assert before["available_vehicles"] == 1
     assert before["on_trip_vehicles"] == 0
-    assert before["pending_trips"] == 1
+    assert before["pending_trips"] == 0
 
     trip_id = make_trip()
+    assert (
+        client.get("/api/v1/analytics/kpis", headers=as_dispatcher).json()["pending_trips"] == 1
+    )
+
     client.post(f"/api/v1/trips/{trip_id}/dispatch", headers=as_dispatcher)
 
     after = client.get("/api/v1/analytics/kpis", headers=as_dispatcher).json()
