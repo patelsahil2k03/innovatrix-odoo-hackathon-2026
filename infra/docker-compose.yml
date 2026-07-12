@@ -1,0 +1,26 @@
+name: transitops
+
+services:
+  db:
+    image: postgres:18
+    container_name: transitops-db
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-transitops}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-transitops}
+      POSTGRES_DB: ${POSTGRES_DB:-transitops}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - transitops_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U transitops -d transitops"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  transitops_pgdata:
+
+# NOTE (P6 hardening): api + web services get added here behind a `full` profile so the
+# evaluator can `docker compose --profile full up` the entire stack. During development,
+# db runs in Docker while frontend/backend run natively for hot reload → scripts/dev.sh
