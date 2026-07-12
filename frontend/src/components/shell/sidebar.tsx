@@ -9,6 +9,7 @@ import {
   DriversIcon,
   TripsIcon,
   AnalyticsIcon,
+  SettingsIcon,
 } from "@/components/icons";
 import { useAuth } from "@/lib/auth-context";
 import { initials } from "@/lib/format";
@@ -41,6 +42,7 @@ const NAV_GROUPS: NavGroup[] = [
       { href: "/analytics", label: "Fleet Map & Analytics", Icon: AnalyticsIcon },
     ],
   },
+  { label: "Account", items: [{ href: "/settings", label: "Settings", Icon: SettingsIcon }] },
 ];
 
 export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: () => void }) {

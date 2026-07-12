@@ -643,6 +643,7 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
 .mb-xs{ margin-bottom: var(--space-xs); }
 .mb-sm{ margin-bottom: var(--space-sm); }
 .mb-md{ margin-bottom: var(--space-md); }
+.mt-md{ margin-top: var(--space-md); }
 
 /* ---- Progress / meter bar ------------------------------------------------ */
 
