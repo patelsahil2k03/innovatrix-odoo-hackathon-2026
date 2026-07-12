@@ -229,7 +229,7 @@ export default function TripsPage() {
           <div className="table-toolbar">
             <div className="table-filters">
               <select
-                className="select"
+                className="select select-sm"
                 value={status}
                 onChange={(e) => {
                   setStatus(e.target.value);
