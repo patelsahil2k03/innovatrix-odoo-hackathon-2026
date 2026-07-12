@@ -3,6 +3,7 @@ import { Inter } from "next/font/google";
 import Script from "next/script";
 import { AuthProvider } from "@/lib/auth-context";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
+import { SIDEBAR_COLLAPSE_BOOT_SCRIPT } from "@/lib/sidebar-collapse";
 import "./globals.css";
 
 const inter = Inter({
@@ -24,8 +25,8 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
-        <Script id="theme-boot" strategy="beforeInteractive">
-          {THEME_BOOT_SCRIPT}
+        <Script id="app-boot" strategy="beforeInteractive">
+          {THEME_BOOT_SCRIPT + SIDEBAR_COLLAPSE_BOOT_SCRIPT}
         </Script>
         <AuthProvider>{children}</AuthProvider>
       </body>

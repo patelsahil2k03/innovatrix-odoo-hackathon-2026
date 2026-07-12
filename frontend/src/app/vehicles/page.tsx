@@ -7,6 +7,8 @@ import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Modal } from "@/components/ui/modal";
 import { VehicleStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableTh } from "@/components/ui/sortable-th";
 import { PlusIcon, SearchIcon } from "@/components/icons";
 import { api, ApiError, type VehicleType } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
@@ -34,6 +36,8 @@ const BLANK_FORM: NewVehicleForm = {
   region: "",
 };
 
+const PAGE_SIZE = 10;
+
 export default function VehiclesPage() {
   const { user } = useAuth();
   const canAdd = canWriteVehicles(user?.role);
@@ -41,10 +45,22 @@ export default function VehiclesPage() {
   const [vehicleType, setVehicleType] = useState("");
   const [region, setRegion] = useState("");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("registration_number");
+  const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState<NewVehicleForm>(BLANK_FORM);
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  function updateFilter(setter: (value: string) => void, value: string) {
+    setter(value);
+    setPage(1);
+  }
+
+  function toggleSort(field: string) {
+    setSort((prev) => (prev === field ? `-${field}` : field));
+    setPage(1);
+  }
 
   const { data, loading, error, reload } = useFetch(
     () =>
@@ -54,11 +70,13 @@ export default function VehiclesPage() {
           vehicle_type: vehicleType || undefined,
           region: region || undefined,
           q: search || undefined,
-          page_size: 100,
+          sort,
+          page,
+          page_size: PAGE_SIZE,
         }),
         api.analytics.fleet(),
       ]),
-    [status, vehicleType, region, search]
+    [status, vehicleType, region, search, sort, page]
   );
 
   const [vehiclesPage, fleet] = data ?? [null, null];
@@ -116,14 +134,14 @@ export default function VehiclesPage() {
 
       <div className="table-toolbar">
         <div className="table-filters">
-          <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select className="select" value={status} onChange={(e) => updateFilter(setStatus, e.target.value)}>
             <option value="">All Statuses</option>
             <option value="available">Available</option>
             <option value="on_trip">On Trip</option>
             <option value="in_shop">In Shop</option>
             <option value="retired">Retired</option>
           </select>
-          <select className="select" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
+          <select className="select" value={vehicleType} onChange={(e) => updateFilter(setVehicleType, e.target.value)}>
             <option value="">All Types</option>
             {Object.entries(VEHICLE_TYPE_LABELS).map(([v, label]) => (
               <option key={v} value={v}>
@@ -131,7 +149,7 @@ export default function VehiclesPage() {
               </option>
             ))}
           </select>
-          <select className="select" value={region} onChange={(e) => setRegion(e.target.value)}>
+          <select className="select" value={region} onChange={(e) => updateFilter(setRegion, e.target.value)}>
             <option value="">All Regions</option>
             {regions.map((r) => (
               <option key={r} value={r}>
@@ -146,7 +164,7 @@ export default function VehiclesPage() {
               type="text"
               placeholder="Search registration or model…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => updateFilter(setSearch, e.target.value)}
             />
           </div>
         </div>
@@ -168,17 +186,18 @@ export default function VehiclesPage() {
         <ErrorBlock message={error} onRetry={reload} />
       ) : (
         <div className="table-wrap">
+          <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Registration</th>
-                <th>Model</th>
-                <th>Type</th>
-                <th>Region</th>
-                <th>Odometer</th>
+                <SortableTh label="Registration" field="registration_number" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Model" field="name_model" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Type" field="vehicle_type" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Region" field="region" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Odometer" field="odometer_km" sort={sort} onSort={toggleSort} />
                 <th>Health</th>
                 <th>Utilization</th>
-                <th>Status</th>
+                <SortableTh label="Status" field="status" sort={sort} onSort={toggleSort} />
                 <th></th>
               </tr>
             </thead>
@@ -229,6 +248,13 @@ export default function VehiclesPage() {
               )}
             </tbody>
           </table>
+          </div>
+          <Pagination
+            page={vehiclesPage?.page ?? 1}
+            pageSize={PAGE_SIZE}
+            total={vehiclesPage?.total ?? 0}
+            onPageChange={setPage}
+          />
         </div>
       )}
 

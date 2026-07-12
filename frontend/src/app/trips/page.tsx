@@ -6,7 +6,9 @@ import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Modal } from "@/components/ui/modal";
 import { TripStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, LoadingInline, TableRowState } from "@/components/ui/async-state";
-import { PlusIcon } from "@/components/icons";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { PlusIcon, SearchIcon } from "@/components/icons";
 import {
   api,
   ApiError,
@@ -20,10 +22,18 @@ import { fmtMoney, fmtDateTime, fmtNumber } from "@/lib/format";
 import { useAuth } from "@/lib/auth-context";
 import { canWriteTrips, ROLE_LABELS } from "@/lib/roles";
 
-async function loadTrips(statusFilter: string) {
+const PAGE_SIZE = 10;
+
+async function loadTrips(statusFilter: string, search: string, sort: string, page: number) {
   const [allPage, filteredPage, vehiclesPage, driversPage] = await Promise.all([
     api.trips.list({ page_size: 200, sort: "-created_at" }),
-    api.trips.list({ status: statusFilter || undefined, page_size: 100, sort: "-created_at" }),
+    api.trips.list({
+      status: statusFilter || undefined,
+      q: search || undefined,
+      sort,
+      page,
+      page_size: PAGE_SIZE,
+    }),
     api.vehicles.list({ page_size: 100 }),
     api.drivers.list({ page_size: 200 }),
   ]);
@@ -40,6 +50,7 @@ async function loadTrips(statusFilter: string) {
   return {
     allTrips: allPage.items,
     trips: filteredPage.items,
+    tripsTotal: filteredPage.total,
     vehicles: vehiclesPage.items,
     drivers: driversPage.items,
     draftTrips,
@@ -71,6 +82,9 @@ export default function TripsPage() {
   const { user } = useAuth();
   const canDispatch = canWriteTrips(user?.role);
   const [status, setStatus] = useState("");
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("-created_at");
+  const [page, setPage] = useState(1);
   const [isNewTripOpen, setIsNewTripOpen] = useState(false);
   const [form, setForm] = useState<NewTripForm>(BLANK_TRIP);
   const [formError, setFormError] = useState<string | null>(null);
@@ -80,7 +94,15 @@ export default function TripsPage() {
   const [busyTripId, setBusyTripId] = useState<string | null>(null);
   const [completingTrip, setCompletingTrip] = useState<TripOut | null>(null);
 
-  const { data, loading, error, reload } = useFetch(() => loadTrips(status), [status]);
+  const { data, loading, error, reload } = useFetch(
+    () => loadTrips(status, search, sort, page),
+    [status, search, sort, page]
+  );
+
+  function toggleSort(field: string) {
+    setSort((prev) => (prev === field ? `-${field}` : field));
+    setPage(1);
+  }
 
   const { data: candidates, loading: candidatesLoading } = useFetch(
     () => (isNewTripOpen ? Promise.all([api.vehicles.dispatchable(0), api.drivers.assignable()]) : Promise.resolve([[], []] as [VehicleOut[], DriverOut[]])),
@@ -159,13 +181,33 @@ export default function TripsPage() {
         <div>
           <div className="table-toolbar">
             <div className="table-filters">
-              <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <select
+                className="select"
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  setPage(1);
+                }}
+              >
                 <option value="">All Statuses</option>
                 <option value="draft">Draft</option>
                 <option value="dispatched">Dispatched</option>
                 <option value="completed">Completed</option>
                 <option value="cancelled">Cancelled</option>
               </select>
+              <div className="search-field">
+                <SearchIcon />
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Search source or destination city…"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
             </div>
             {canDispatch ? (
               <button className="btn btn-primary" onClick={() => setIsNewTripOpen(true)}>
@@ -191,16 +233,17 @@ export default function TripsPage() {
             <ErrorBlock message={error} onRetry={reload} />
           ) : (
             <div className="table-wrap">
+              <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Route</th>
+                    <SortableTh label="Route" field="source_city" sort={sort} onSort={toggleSort} />
                     <th>Vehicle</th>
                     <th>Driver</th>
-                    <th>Cargo</th>
-                    <th>Revenue</th>
-                    <th>Status</th>
-                    <th>Dispatched</th>
+                    <SortableTh label="Cargo" field="cargo_weight_kg" sort={sort} onSort={toggleSort} />
+                    <SortableTh label="Revenue" field="revenue" sort={sort} onSort={toggleSort} />
+                    <SortableTh label="Status" field="status" sort={sort} onSort={toggleSort} />
+                    <SortableTh label="Dispatched" field="dispatched_at" sort={sort} onSort={toggleSort} />
                     <th></th>
                   </tr>
                 </thead>
@@ -272,6 +315,13 @@ export default function TripsPage() {
                   )}
                 </tbody>
               </table>
+              </div>
+              <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={data?.tripsTotal ?? 0}
+                onPageChange={setPage}
+              />
             </div>
           )}
         </div>
@@ -288,7 +338,7 @@ export default function TripsPage() {
                 </p>
               </div>
             </div>
-            <div className="panel-body">
+            <div className="panel-body panel-body-scroll">
               {!data ? (
                 <LoadingInline />
               ) : data.draftTrips.length === 0 ? (
