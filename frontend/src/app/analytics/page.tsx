@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Meter } from "@/components/ui/meter";
@@ -9,7 +9,14 @@ import { FleetMap } from "@/components/fleet-map";
 import { TrendChart } from "@/components/revenue-trend-chart";
 import { api } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
+import { useEventStream } from "@/lib/use-event-stream";
 import { fmtMoney, ratingFromSafetyScore } from "@/lib/format";
+
+interface ProgressOverride {
+  progress_percent: number;
+  current_lat: number;
+  current_lng: number;
+}
 
 async function loadAnalytics() {
   const [kpis, fleet, trends, liveTrips, driversPage] = await Promise.all([
@@ -24,6 +31,39 @@ async function loadAnalytics() {
 
 export default function AnalyticsPage() {
   const { data, loading, error, reload } = useFetch(loadAnalytics, []);
+
+  // Live-updates layer: the base list comes from the bootstrap fetch above; individual trips'
+  // positions are nudged forward by SSE `trip.progress` events (simulator + real dispatches)
+  // without waiting for a full refetch. `kpi.refresh` fires on every meaningful write (dispatch,
+  // complete, cancel, maintenance, fuel/expense — see backend/core/events.py) and is the signal
+  // to pull fresh truth, which also drops any trip that has since completed/been cancelled.
+  const [progressOverrides, setProgressOverrides] = useState<Record<string, ProgressOverride>>({});
+
+  useEventStream({
+    "trip.progress": (payload: { trip_id: string; progress_percent: number }) => {
+      const base = data?.liveTrips.find((t) => t.id === payload.trip_id);
+      if (!base) return;
+      const frac = payload.progress_percent / 100;
+      setProgressOverrides((prev) => ({
+        ...prev,
+        [payload.trip_id]: {
+          progress_percent: payload.progress_percent,
+          current_lat: base.source_lat + (base.dest_lat - base.source_lat) * frac,
+          current_lng: base.source_lng + (base.dest_lng - base.source_lng) * frac,
+        },
+      }));
+    },
+    "kpi.refresh": () => reload(),
+  });
+
+  const liveTrips = useMemo(
+    () =>
+      (data?.liveTrips ?? []).map((t) => {
+        const override = progressOverrides[t.id];
+        return override ? { ...t, ...override } : t;
+      }),
+    [data, progressOverrides]
+  );
 
   const avgUtilization = useMemo(() => {
     if (!data?.fleet.length) return 0;
@@ -103,7 +143,7 @@ export default function AnalyticsPage() {
           { label: "Total Revenue", value: fmtMoney(data.kpis.total_revenue), primary: true },
           { label: "Avg Utilization", value: `${avgUtilization}%` },
           { label: "Avg Fleet Health", value: avgHealth },
-          { label: "Active Routes", value: data.liveTrips.length, primary: true },
+          { label: "Active Routes", value: liveTrips.length, primary: true },
         ]}
       />
 
@@ -118,11 +158,11 @@ export default function AnalyticsPage() {
             </p>
           </div>
         </div>
-        {data.liveTrips.length === 0 ? (
+        {liveTrips.length === 0 ? (
           <EmptyBlock label="No trips are currently dispatched." />
         ) : (
           <>
-            <FleetMap trips={data.liveTrips} />
+            <FleetMap trips={liveTrips} />
             <div className="map-legend">
               <div className="legend-item">
                 <span className="legend-dot" style={{ background: "var(--color-primary)" }} />

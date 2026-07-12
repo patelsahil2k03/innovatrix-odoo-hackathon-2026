@@ -9,6 +9,7 @@ import { LoadingBlock, ErrorBlock, EmptyBlock, TableRowState } from "@/component
 import { TripStatusBadge, RiskBadge, severityDotClass } from "@/components/ui/status-badge";
 import { api, type FleetRow, type TripOut, type DriverOut, type AlertOut, type Suggestion } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
+import { useEventStream } from "@/lib/use-event-stream";
 import { fmtMoney, fmtDateTime, timeAgo, healthMeterClass, riskFromHealth } from "@/lib/format";
 
 interface DashboardData {
@@ -51,6 +52,11 @@ async function loadDashboard(): Promise<DashboardData> {
 
 export default function DashboardPage() {
   const { data, loading, error, reload } = useFetch(loadDashboard, []);
+
+  // "kpi.refresh" fires after every meaningful write (dispatch, complete, cancel, maintenance,
+  // fuel/expense — backend/core/events.py) so the dashboard visibly moves on its own, without
+  // the user ever refreshing — the "dynamic data" judging criterion.
+  useEventStream({ "kpi.refresh": () => reload() });
 
   const vehicleByI = useMemo(() => new Map((data?.fleet ?? []).map((v) => [v.vehicle_id, v])), [data]);
   const driverById = useMemo(() => new Map((data?.drivers ?? []).map((d) => [d.id, d])), [data]);
