@@ -1,13 +1,14 @@
 "use client";
 
-import { useMemo } from "react";
-import { useParams } from "next/navigation";
+import { useMemo, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
 import { AppShell } from "@/components/shell/app-shell";
 import { Tabs } from "@/components/ui/tabs";
 import { Meter } from "@/components/ui/meter";
+import { Modal } from "@/components/ui/modal";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import { DriverStatusBadge, TripStatusBadge, DocumentStatusBadge } from "@/components/ui/status-badge";
-import { api, type VehicleOut } from "@/lib/api";
+import { api, ApiError, type VehicleOut, type LicenseCategory, type DriverStatus } from "@/lib/api";
 import { useAuth } from "@/lib/auth-context";
 import { useFetch } from "@/lib/use-fetch";
 import { can } from "@/lib/rbac";
@@ -25,10 +26,23 @@ async function loadDriver(id: string) {
 
 export default function DriverDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { user } = useAuth();
   const canWriteDriver = can.writeDrivers(user?.role);
   const canWriteTrips = can.writeTrips(user?.role);
   const { data, loading, error, reload } = useFetch(() => loadDriver(id), [id]);
+
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name: "",
+    phone: "",
+    license_category: "LMV" as LicenseCategory,
+    license_expiry_date: "",
+    safety_score: "",
+    status: "available" as DriverStatus,
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
 
   const vehicleById = useMemo(
     () => new Map((data?.vehicles ?? []).map((v: VehicleOut) => [v.id, v])),
@@ -54,6 +68,41 @@ export default function DriverDetailPage() {
   const { driver, documents, trips } = data;
   const { performance } = driver;
 
+  function openEdit() {
+    setEditForm({
+      name: driver.name,
+      phone: driver.phone ?? "",
+      license_category: driver.license_category,
+      license_expiry_date: driver.license_expiry_date,
+      safety_score: String(driver.safety_score),
+      status: driver.status,
+    });
+    setEditError(null);
+    setIsEditOpen(true);
+  }
+
+  async function handleEditDriver(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setEditError(null);
+    setEditSubmitting(true);
+    try {
+      await api.drivers.update(driver.id, {
+        name: editForm.name,
+        phone: editForm.phone || undefined,
+        license_category: editForm.license_category,
+        license_expiry_date: editForm.license_expiry_date,
+        safety_score: Number(editForm.safety_score),
+        status: editForm.status,
+      });
+      setIsEditOpen(false);
+      reload();
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "Failed to update driver");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
   return (
     <AppShell
       eyebrow="Drivers"
@@ -61,11 +110,18 @@ export default function DriverDetailPage() {
       backHref="/drivers"
       actions={
         <>
-          {/* TODO(phase: missing screens): wire real edit/assign handlers — buttons are
-              role-gated to match the backend but have no handler yet. */}
-          {canWriteDriver && <button className="btn btn-outline-muted btn-sm">Edit</button>}
+          {canWriteDriver && (
+            <button className="btn btn-outline-muted btn-sm" onClick={openEdit}>
+              Edit
+            </button>
+          )}
           {canWriteTrips && (
-            <button className="btn btn-primary btn-sm">Assign to Trip</button>
+            <button
+              className="btn btn-primary btn-sm"
+              onClick={() => router.push(`/trips?openTrip=1&driverId=${driver.id}`)}
+            >
+              Assign to Trip
+            </button>
           )}
         </>
       }
@@ -228,6 +284,96 @@ export default function DriverDetailPage() {
           },
         ]}
       />
+
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title="Edit Driver"
+        footer={
+          <>
+            <button className="btn btn-outline-muted" onClick={() => setIsEditOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleEditDriver} disabled={editSubmitting}>
+              {editSubmitting ? "Saving…" : "Save Changes"}
+            </button>
+          </>
+        }
+      >
+        <form className="form-grid" onSubmit={handleEditDriver}>
+          <div className="field span-2">
+            <label className="label">Full Name</label>
+            <input
+              className="input"
+              value={editForm.name}
+              onChange={(e) => setEditForm({ ...editForm, name: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="label">Phone</label>
+            <input
+              className="input"
+              value={editForm.phone}
+              onChange={(e) => setEditForm({ ...editForm, phone: e.target.value })}
+            />
+          </div>
+          <div className="field">
+            <label className="label">License Category</label>
+            <select
+              className="select"
+              value={editForm.license_category}
+              onChange={(e) =>
+                setEditForm({ ...editForm, license_category: e.target.value as LicenseCategory })
+              }
+            >
+              <option value="LMV">LMV</option>
+              <option value="HMV">HMV</option>
+              <option value="TRANS">TRANS</option>
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">License Expiry</label>
+            <input
+              className="input"
+              type="date"
+              value={editForm.license_expiry_date}
+              onChange={(e) => setEditForm({ ...editForm, license_expiry_date: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="label">Safety Score (0–100)</label>
+            <input
+              className="input"
+              type="number"
+              min={0}
+              max={100}
+              value={editForm.safety_score}
+              onChange={(e) => setEditForm({ ...editForm, safety_score: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field span-2">
+            <label className="label">Status</label>
+            <select
+              className="select"
+              value={editForm.status}
+              onChange={(e) => setEditForm({ ...editForm, status: e.target.value as DriverStatus })}
+            >
+              <option value="available">Available</option>
+              <option value="on_trip">On Trip</option>
+              <option value="off_duty">Off Duty</option>
+              <option value="suspended">Suspended</option>
+            </select>
+          </div>
+          {editError ? (
+            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
+              {editError}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
     </AppShell>
   );
 }

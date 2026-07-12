@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Modal } from "@/components/ui/modal";
@@ -72,9 +73,16 @@ const BLANK_TRIP: NewTripForm = {
 export default function TripsPage() {
   const { user } = useAuth();
   const canWrite = can.writeTrips(user?.role);
+  const searchParams = useSearchParams();
   const [status, setStatus] = useState("");
-  const [isNewTripOpen, setIsNewTripOpen] = useState(false);
-  const [form, setForm] = useState<NewTripForm>(BLANK_TRIP);
+  // Seeded once from the URL (e.g. a driver's "Assign to Trip" button linking here with
+  // ?openTrip=1&driverId=...) via lazy initializers — not an effect, since this is genuinely
+  // initial state derived from props/URL, not a subscription to something that changes later.
+  const [isNewTripOpen, setIsNewTripOpen] = useState(() => searchParams.get("openTrip") === "1");
+  const [form, setForm] = useState<NewTripForm>(() => ({
+    ...BLANK_TRIP,
+    driver_id: searchParams.get("driverId") ?? "",
+  }));
   const [formError, setFormError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
