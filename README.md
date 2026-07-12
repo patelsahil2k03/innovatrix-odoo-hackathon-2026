@@ -38,7 +38,22 @@ An end-to-end transport operations platform that digitizes vehicle, driver, disp
 
 ## Tech Stack
 
-_[To be added once the problem statement and stack are finalized]_
+| Layer | Technology |
+|---|---|
+| Frontend | Next.js 16 (App Router) · TypeScript · Tailwind CSS v4 · shadcn/ui |
+| Visualization | MapLibre GL JS + deck.gl (animated trips map) · Recharts (analytics) |
+| Backend | FastAPI (Python 3.13, managed by uv) · REST + Server-Sent Events |
+| Database | PostgreSQL 18 (Docker) · SQLAlchemy 2.0 · Alembic migrations · SQLite fallback |
+| Auth | JWT (httpOnly cookie) with Role-Based Access Control — 4 roles |
+
+## Repository Structure
+
+```
+frontend/   Next.js app — UI, screens, client-side validation
+backend/    FastAPI app — REST API, business rules, SSE, data layer
+infra/      docker-compose (PostgreSQL)
+scripts/    dev.sh (one-command dev stack) and ops helpers
+```
 
 ## Features
 
@@ -48,19 +63,40 @@ _[To be added as the application takes shape]_
 
 ### Prerequisites
 
-_[List runtime/tooling requirements here once chosen, e.g. Node.js, Python, a database, etc.]_
+- Node.js ≥ 20 (tested on 22)
+- [uv](https://docs.astral.sh/uv/) ≥ 0.9 (auto-installs Python 3.13)
+- Docker + Compose v2 (for PostgreSQL — optional, SQLite fallback available)
 
-### Installation
-
-```bash
-# [Add install steps once the stack is chosen]
-```
-
-### Running Locally
+### Quick start (one command)
 
 ```bash
-# [Add run steps once the stack is chosen]
+git clone https://github.com/patelsahil2k03/innovatrix-odoo-hackathon-2026.git
+cd innovatrix-odoo-hackathon-2026
+./scripts/dev.sh
 ```
+
+That single command creates `.env` from the template, starts PostgreSQL in Docker (waits for
+health), then runs the API (`http://localhost:8000` — docs at `/docs`) and the web app
+(`http://localhost:3000`) with hot reload. `Ctrl+C` stops everything.
+No Docker? `./scripts/dev.sh --no-db` with the SQLite `DATABASE_URL` from `.env.example`.
+
+### Running pieces manually
+
+```bash
+# Database
+docker compose -f infra/docker-compose.yml up -d db
+
+# Backend (from backend/)
+uv sync && uv run uvicorn transitops.main:app --reload   # http://localhost:8000/docs
+
+# Frontend (from frontend/)
+npm install && npm run dev                               # http://localhost:3000
+
+# Tests
+cd backend && uv run pytest
+```
+
+Per-app details: [frontend/README.md](frontend/README.md) · [backend/README.md](backend/README.md)
 
 ## Contribution Workflow
 
