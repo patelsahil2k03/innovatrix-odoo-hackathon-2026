@@ -38,6 +38,17 @@ target/
 .DS_Store
 Thumbs.db
 
+# Databases & test artifacts
+*.sqlite3
+*.db
+.pytest_cache/
+.coverage
+coverage/
+
 # Logs & misc
 *.log
 logs/
+
+# Internal team docs (local working notes, not part of the submission)
+docs/FABLE_MASTER_PROMPT.md
+ai_guidelines/

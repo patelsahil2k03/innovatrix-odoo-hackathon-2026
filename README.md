@@ -62,19 +62,19 @@ _[List runtime/tooling requirements here once chosen, e.g. Node.js, Python, a da
 
 ## Contribution Workflow
 
-This repo uses one `main` branch plus four role-based feature branches, split by concern rather than by team member, so the structure holds regardless of the eventual tech stack:
+This repo uses `main`, a `dev` integration branch, four role-based feature branches, and a shared `experiments` branch:
 
-- `feature/frontend-ui` — UI/UX, components, responsiveness, styling
-- `feature/backend-api` — server, business logic, APIs
-- `feature/database-integration` — data modeling, DB setup, third-party integrations
-- `feature/testing-docs` — testing, validation, docs, deployment/demo prep
+```
+main         (stable, demo-ready — only dev merges in here)
+├── dev      (integration/testing — feature branches merge here first)
+│   ├── feature/frontend-ui           — UI/UX, components, responsiveness, styling
+│   ├── feature/backend-api           — server, business logic, APIs
+│   ├── feature/database-integration  — data modeling, DB setup, third-party integrations
+│   └── feature/testing-docs          — testing, validation, docs, deployment/demo prep
+└── experiments  (shared scratch space, not merged into main directly)
+```
 
-**Rules for the team:**
-
-1. Work on your branch, open a PR (or merge directly) into `main` — keep `main` deployable at all times.
-2. Push progress to `main` at least once every hour, per the hackathon's tracking requirement.
-3. Commit your own code under your own name/account — individual commits are used for contribution scoring.
-4. Write commit messages that explain *what* changed and *why*, not just "update" or "fix".
+The role split holds regardless of the eventual tech stack, since it separates by concern, not framework. Feature branches merge into `dev` for integration and testing; `dev` merges into `main` once stable, keeping `main` demo-ready at all times. `experiments` is a shared scratch space for spikes and proofs of concept — useful work is cherry-picked into a feature branch rather than merged directly into `main`.
 
 ## License
 
