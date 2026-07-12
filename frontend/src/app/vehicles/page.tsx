@@ -5,14 +5,26 @@ import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Modal } from "@/components/ui/modal";
+import { Field, FormAlert, RequiredLegend } from "@/components/ui/field";
 import { VehicleStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableTh } from "@/components/ui/sortable-th";
 import { PlusIcon, SearchIcon } from "@/components/icons";
-import { api, ApiError, type VehicleType } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
+import { api, type VehicleType } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtNumber, healthMeterClass, VEHICLE_TYPE_LABELS } from "@/lib/format";
-import { can } from "@/lib/rbac";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteVehicles, ROLE_LABELS } from "@/lib/roles";
+import {
+  fieldErrorsFrom,
+  formMessageFrom,
+  hasErrors,
+  validateVehicle,
+  type FieldErrors,
+} from "@/lib/validation";
+
+const FORM_ID = "add-vehicle-form";
 
 interface NewVehicleForm {
   registration_number: string;
@@ -34,17 +46,32 @@ const BLANK_FORM: NewVehicleForm = {
   region: "",
 };
 
+const PAGE_SIZE = 10;
+
 export default function VehiclesPage() {
   const { user } = useAuth();
-  const canWrite = can.writeVehicles(user?.role);
+  const canAdd = canWriteVehicles(user?.role);
   const [status, setStatus] = useState("");
   const [vehicleType, setVehicleType] = useState("");
   const [region, setRegion] = useState("");
   const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("registration_number");
+  const [page, setPage] = useState(1);
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [form, setForm] = useState<NewVehicleForm>(BLANK_FORM);
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  function updateFilter(setter: (value: string) => void, value: string) {
+    setter(value);
+    setPage(1);
+  }
+
+  function toggleSort(field: string) {
+    setSort((prev) => (prev === field ? `-${field}` : field));
+    setPage(1);
+  }
 
   const { data, loading, error, reload } = useFetch(
     () =>
@@ -54,11 +81,13 @@ export default function VehiclesPage() {
           vehicle_type: vehicleType || undefined,
           region: region || undefined,
           q: search || undefined,
-          page_size: 100,
+          sort,
+          page,
+          page_size: PAGE_SIZE,
         }),
         api.analytics.fleet(),
       ]),
-    [status, vehicleType, region, search]
+    [status, vehicleType, region, search, sort, page]
   );
 
   const [vehiclesPage, fleet] = data ?? [null, null];
@@ -79,25 +108,53 @@ export default function VehiclesPage() {
     ? Math.round(fleet.reduce((s, f) => s + f.health_score, 0) / fleet.length)
     : 0;
 
-  async function handleAddVehicle(e: React.SyntheticEvent) {
+  // Editing a field clears its error, so the form stops shouting the moment it's fixed.
+  function update(patch: Partial<NewVehicleForm>) {
+    setForm((prev) => ({ ...prev, ...patch }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch)) delete next[key];
+      return next;
+    });
+  }
+
+  function closeAdd() {
+    setIsAddOpen(false);
+    setForm(BLANK_FORM);
+    setErrors({});
+    setFormError(null);
+  }
+
+  async function handleAddVehicle(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
+
+    const found = validateVehicle(form);
+    if (hasErrors(found)) {
+      // Nothing is sent — the user is told at each field instead of via a round-trip.
+      setErrors(found);
+      setFormError("Some details need fixing.");
+      return;
+    }
+    setErrors({});
     setSubmitting(true);
+
     try {
       await api.vehicles.create({
-        registration_number: form.registration_number,
-        name_model: form.name_model,
+        registration_number: form.registration_number.trim().toUpperCase(),
+        name_model: form.name_model.trim(),
         vehicle_type: form.vehicle_type,
         max_load_capacity_kg: Number(form.max_load_capacity_kg),
         odometer_km: Number(form.odometer_km || 0),
         acquisition_cost: Number(form.acquisition_cost),
-        region: form.region || undefined,
+        region: form.region.trim() || undefined,
       });
-      setIsAddOpen(false);
-      setForm(BLANK_FORM);
+      closeAdd();
       reload();
     } catch (err) {
-      setFormError(err instanceof ApiError ? err.message : "Failed to add vehicle");
+      // A server-side rejection (duplicate plate, say) lands on the same field it belongs to.
+      setErrors(fieldErrorsFrom(err));
+      setFormError(formMessageFrom(err, "Failed to add vehicle"));
     } finally {
       setSubmitting(false);
     }
@@ -116,14 +173,14 @@ export default function VehiclesPage() {
 
       <div className="table-toolbar">
         <div className="table-filters">
-          <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
+          <select className="select select-sm" value={status} onChange={(e) => updateFilter(setStatus, e.target.value)}>
             <option value="">All Statuses</option>
             <option value="available">Available</option>
             <option value="on_trip">On Trip</option>
             <option value="in_shop">In Shop</option>
             <option value="retired">Retired</option>
           </select>
-          <select className="select" value={vehicleType} onChange={(e) => setVehicleType(e.target.value)}>
+          <select className="select select-sm" value={vehicleType} onChange={(e) => updateFilter(setVehicleType, e.target.value)}>
             <option value="">All Types</option>
             {Object.entries(VEHICLE_TYPE_LABELS).map(([v, label]) => (
               <option key={v} value={v}>
@@ -131,7 +188,7 @@ export default function VehiclesPage() {
               </option>
             ))}
           </select>
-          <select className="select" value={region} onChange={(e) => setRegion(e.target.value)}>
+          <select className="select select-sm" value={region} onChange={(e) => updateFilter(setRegion, e.target.value)}>
             <option value="">All Regions</option>
             {regions.map((r) => (
               <option key={r} value={r}>
@@ -146,15 +203,19 @@ export default function VehiclesPage() {
               type="text"
               placeholder="Search registration or model…"
               value={search}
-              onChange={(e) => setSearch(e.target.value)}
+              onChange={(e) => updateFilter(setSearch, e.target.value)}
             />
           </div>
         </div>
-        {canWrite && (
+        {canAdd ? (
           <button className="btn btn-primary" onClick={() => setIsAddOpen(true)}>
             <PlusIcon className="icon" style={{ width: 16, height: 16 }} />
             Add Vehicle
           </button>
+        ) : (
+          <span className="text-body-sm u-muted-soft">
+            Only Fleet Managers can add vehicles (you&apos;re signed in as {ROLE_LABELS[user?.role ?? ""] ?? user?.role}).
+          </span>
         )}
       </div>
 
@@ -164,17 +225,18 @@ export default function VehiclesPage() {
         <ErrorBlock message={error} onRetry={reload} />
       ) : (
         <div className="table-wrap">
+          <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
-                <th>Registration</th>
-                <th>Model</th>
-                <th>Type</th>
-                <th>Region</th>
-                <th>Odometer</th>
+                <SortableTh label="Registration" field="registration_number" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Model" field="name_model" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Type" field="vehicle_type" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Region" field="region" sort={sort} onSort={toggleSort} />
+                <SortableTh label="Odometer" field="odometer_km" sort={sort} onSort={toggleSort} />
                 <th>Health</th>
                 <th>Utilization</th>
-                <th>Status</th>
+                <SortableTh label="Status" field="status" sort={sort} onSort={toggleSort} />
                 <th></th>
               </tr>
             </thead>
@@ -225,51 +287,67 @@ export default function VehiclesPage() {
               )}
             </tbody>
           </table>
+          </div>
+          <Pagination
+            page={vehiclesPage?.page ?? 1}
+            pageSize={PAGE_SIZE}
+            total={vehiclesPage?.total ?? 0}
+            onPageChange={setPage}
+          />
         </div>
       )}
 
       <Modal
         isOpen={isAddOpen}
-        onClose={() => setIsAddOpen(false)}
+        onClose={closeAdd}
         title="Add Vehicle"
         footer={
           <>
-            <button className="btn btn-outline-muted" onClick={() => setIsAddOpen(false)}>
+            <button className="btn btn-outline-muted" onClick={closeAdd}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={handleAddVehicle} disabled={submitting}>
+            {/* The footer sits outside <form>, so `form=` associates the button with it —
+                without this the submit handler (and every validation) never runs. */}
+            <button className="btn btn-primary" type="submit" form={FORM_ID} disabled={submitting}>
               {submitting ? "Saving…" : "Save Vehicle"}
             </button>
           </>
         }
       >
-        <form className="form-grid" onSubmit={handleAddVehicle}>
-          <div className="field">
-            <label className="label">Registration Number</label>
+        <form className="form-grid" id={FORM_ID} onSubmit={handleAddVehicle} noValidate>
+          <RequiredLegend />
+
+          {formError ? <FormAlert message={formError} count={Object.keys(errors).length} /> : null}
+
+          <Field
+            id="registration_number"
+            label="Registration Number"
+            required
+            error={errors.registration_number}
+            hint="Indian plate format, e.g. GJ-01-AB-1234"
+          >
             <input
               className="input"
               placeholder="GJ-01-AB-1234"
               value={form.registration_number}
-              onChange={(e) => setForm({ ...form, registration_number: e.target.value })}
-              required
+              onChange={(e) => update({ registration_number: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label className="label">Model</label>
+          </Field>
+
+          <Field id="name_model" label="Model" required error={errors.name_model}>
             <input
               className="input"
               placeholder="Tata Prima 4928"
               value={form.name_model}
-              onChange={(e) => setForm({ ...form, name_model: e.target.value })}
-              required
+              onChange={(e) => update({ name_model: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label className="label">Vehicle Type</label>
+          </Field>
+
+          <Field id="vehicle_type" label="Vehicle Type" required error={errors.vehicle_type}>
             <select
               className="select"
               value={form.vehicle_type}
-              onChange={(e) => setForm({ ...form, vehicle_type: e.target.value as VehicleType })}
+              onChange={(e) => update({ vehicle_type: e.target.value as VehicleType })}
             >
               {Object.entries(VEHICLE_TYPE_LABELS).map(([v, label]) => (
                 <option key={v} value={v}>
@@ -277,53 +355,65 @@ export default function VehiclesPage() {
                 </option>
               ))}
             </select>
-          </div>
-          <div className="field">
-            <label className="label">Max Load Capacity (kg)</label>
+          </Field>
+
+          <Field
+            id="max_load_capacity_kg"
+            label="Max Load Capacity (kg)"
+            required
+            error={errors.max_load_capacity_kg}
+          >
             <input
               className="input"
               type="number"
+              min="1"
               placeholder="18500"
               value={form.max_load_capacity_kg}
-              onChange={(e) => setForm({ ...form, max_load_capacity_kg: e.target.value })}
-              required
+              onChange={(e) => update({ max_load_capacity_kg: e.target.value })}
             />
-          </div>
-          <div className="field">
-            <label className="label">Region</label>
-            <input
-              className="input"
-              placeholder="Ahmedabad"
-              value={form.region}
-              onChange={(e) => setForm({ ...form, region: e.target.value })}
-            />
-          </div>
-          <div className="field">
-            <label className="label">Acquisition Cost (₹)</label>
+          </Field>
+
+          <Field
+            id="acquisition_cost"
+            label="Acquisition Cost (₹)"
+            required
+            error={errors.acquisition_cost}
+          >
             <input
               className="input"
               type="number"
+              min="1"
               placeholder="4200000"
               value={form.acquisition_cost}
-              onChange={(e) => setForm({ ...form, acquisition_cost: e.target.value })}
-              required
+              onChange={(e) => update({ acquisition_cost: e.target.value })}
             />
-          </div>
-          <div className="field span-2">
-            <label className="label">Odometer (km)</label>
+          </Field>
+
+          <Field id="region" label="Region" error={errors.region}>
+            <input
+              className="input"
+              placeholder="Gujarat"
+              value={form.region}
+              onChange={(e) => update({ region: e.target.value })}
+            />
+          </Field>
+
+          <Field
+            id="odometer_km"
+            label="Odometer (km)"
+            error={errors.odometer_km}
+            hint="Defaults to 0 for a brand-new vehicle."
+            span2
+          >
             <input
               className="input"
               type="number"
+              min="0"
               placeholder="0"
               value={form.odometer_km}
-              onChange={(e) => setForm({ ...form, odometer_km: e.target.value })}
+              onChange={(e) => update({ odometer_km: e.target.value })}
             />
-          </div>
-          {formError ? (
-            <p className="text-body-sm u-warning span-2" style={{ gridColumn: "span 2" }}>
-              {formError}
-            </p>
-          ) : null}
+          </Field>
         </form>
       </Modal>
     </AppShell>

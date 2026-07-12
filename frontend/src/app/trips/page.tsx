@@ -5,9 +5,13 @@ import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Modal } from "@/components/ui/modal";
+import { Field, FormAlert, RequiredLegend } from "@/components/ui/field";
+import { Meter } from "@/components/ui/meter";
 import { TripStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, LoadingInline, TableRowState } from "@/components/ui/async-state";
-import { PlusIcon } from "@/components/icons";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { PlusIcon, SearchIcon } from "@/components/icons";
 import {
   api,
   ApiError,
@@ -16,17 +20,35 @@ import {
   type DriverOut,
   type Suggestion,
 } from "@/lib/api";
-import { Meter } from "@/components/ui/meter";
-import { useAuth } from "@/lib/auth-context";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtMoney, fmtDateTime, fmtNumber } from "@/lib/format";
-import { can } from "@/lib/rbac";
-import { tripFormSchema, fieldErrorsFrom } from "@/lib/validation";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteTrips, ROLE_LABELS } from "@/lib/roles";
+import {
+  fieldErrorsFrom,
+  formMessageFrom,
+  hasErrors,
+  validateCompleteTrip,
+  validateTrip,
+  type CompleteTripFormValues,
+  type FieldErrors,
+} from "@/lib/validation";
 
-async function loadTrips(statusFilter: string) {
+const TRIP_FORM_ID = "create-trip-form";
+const COMPLETE_FORM_ID = "complete-trip-form";
+
+const PAGE_SIZE = 10;
+
+async function loadTrips(statusFilter: string, search: string, sort: string, page: number) {
   const [allPage, filteredPage, vehiclesPage, driversPage] = await Promise.all([
     api.trips.list({ page_size: 200, sort: "-created_at" }),
-    api.trips.list({ status: statusFilter || undefined, page_size: 100, sort: "-created_at" }),
+    api.trips.list({
+      status: statusFilter || undefined,
+      q: search || undefined,
+      sort,
+      page,
+      page_size: PAGE_SIZE,
+    }),
     api.vehicles.list({ page_size: 100 }),
     api.drivers.list({ page_size: 200 }),
   ]);
@@ -43,6 +65,7 @@ async function loadTrips(statusFilter: string) {
   return {
     allTrips: allPage.items,
     trips: filteredPage.items,
+    tripsTotal: filteredPage.total,
     vehicles: vehiclesPage.items,
     drivers: driversPage.items,
     draftTrips,
@@ -72,30 +95,41 @@ const BLANK_TRIP: NewTripForm = {
 
 export default function TripsPage() {
   const { user } = useAuth();
-  const canWrite = can.writeTrips(user?.role);
+  const canDispatch = canWriteTrips(user?.role);
   const searchParams = useSearchParams();
   const [status, setStatus] = useState("");
-  // Seeded once from the URL (e.g. a driver's "Assign to Trip" button linking here with
-  // ?openTrip=1&driverId=...) via lazy initializers — not an effect, since this is genuinely
-  // initial state derived from props/URL, not a subscription to something that changes later.
+  const [search, setSearch] = useState("");
+  const [sort, setSort] = useState("-created_at");
+  const [page, setPage] = useState(1);
+  // Seeded once from the URL (a driver's "Assign to Trip" button links here with
+  // ?openTrip=1&driverId=...) via lazy initializers — genuinely initial state derived from the
+  // URL, not a subscription to something that changes later, so no effect is needed.
   const [isNewTripOpen, setIsNewTripOpen] = useState(() => searchParams.get("openTrip") === "1");
   const [form, setForm] = useState<NewTripForm>(() => ({
     ...BLANK_TRIP,
     driver_id: searchParams.get("driverId") ?? "",
   }));
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
 
   const [rowError, setRowError] = useState<string | null>(null);
   const [busyTripId, setBusyTripId] = useState<string | null>(null);
   const [completingTrip, setCompletingTrip] = useState<TripOut | null>(null);
 
-  const { data, loading, error, reload } = useFetch(() => loadTrips(status), [status]);
+  const { data, loading, error, reload } = useFetch(
+    () => loadTrips(status, search, sort, page),
+    [status, search, sort, page]
+  );
+
+  function toggleSort(field: string) {
+    setSort((prev) => (prev === field ? `-${field}` : field));
+    setPage(1);
+  }
 
   // Re-run whenever the typed cargo weight changes so the vehicle picker only ever offers
-  // vehicles that can actually take the load — was previously hardcoded to 0, which silently
-  // defeated the capacity filter (docs/04_API_CONTRACT.md's `/vehicles/dispatchable?cargo_weight_kg=`).
+  // vehicles that can actually take the load — a hardcoded dispatchable(0) here would silently
+  // defeat the capacity filter (docs/04_API_CONTRACT.md's `/vehicles/dispatchable?cargo_weight_kg=`).
   const cargoKg = Number(form.cargo_weight_kg) || 0;
   const { data: candidates, loading: candidatesLoading } = useFetch(
     () =>
@@ -108,12 +142,11 @@ export default function TripsPage() {
   const candidateDrivers = candidates?.[1] ?? [];
 
   // If the picked vehicle drops out of the refreshed (capacity-filtered) list — e.g. the user
-  // raised the cargo weight past what it can carry — treat the selection as cleared. This is
-  // derived at render time rather than synced back into `form` via an effect+setState, so the
-  // <select> and the submit payload both use `effectiveVehicleId`/`selectedVehicle` instead of
-  // the possibly-stale `form.vehicle_id`.
+  // raised the cargo weight past what it can carry — treat the selection as cleared. Derived at
+  // render time rather than synced back via an effect+setState.
   const selectedVehicle = candidateVehicles.find((v) => v.id === form.vehicle_id);
   const effectiveVehicleId = selectedVehicle ? form.vehicle_id : "";
+  const selectedCapacityKg = selectedVehicle?.max_load_capacity_kg;
 
   const vehicleById = useMemo(() => new Map((data?.vehicles ?? []).map((v) => [v.id, v])), [data]);
   const driverById = useMemo(() => new Map((data?.drivers ?? []).map((d) => [d.id, d])), [data]);
@@ -123,43 +156,58 @@ export default function TripsPage() {
   const draftCount = allTrips.filter((t) => t.status === "draft").length;
   const dispatchedCount = allTrips.filter((t) => t.status === "dispatched").length;
   const completedCount = allTrips.filter((t) => t.status === "completed").length;
-  const totalRevenue = allTrips.filter((t) => t.status !== "cancelled").reduce((s, t) => s + t.revenue, 0);
+  // Completed trips only — matches kpis.total_revenue on Dashboard/Analytics. Draft/dispatched
+  // trips carry a planned revenue figure that isn't earned yet, so it must not be counted here.
+  const totalRevenue = allTrips.filter((t) => t.status === "completed").reduce((s, t) => s + t.revenue, 0);
 
-  async function handleCreateTrip(e: React.SyntheticEvent) {
+  function update(patch: Partial<NewTripForm>) {
+    setForm((prev) => ({ ...prev, ...patch }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch)) delete next[key];
+      // Swapping the vehicle can make an already-typed cargo weight legal (or not), so the
+      // stale capacity error must go with it.
+      if ("vehicle_id" in patch) delete next.cargo_weight_kg;
+      return next;
+    });
+  }
+
+  function closeNewTrip() {
+    setIsNewTripOpen(false);
+    setForm(BLANK_TRIP);
+    setErrors({});
+    setFormError(null);
+  }
+
+  async function handleCreateTrip(e: React.FormEvent) {
     e.preventDefault();
     setFormError(null);
-    setFieldErrors({});
 
-    const parsed = tripFormSchema.safeParse({ ...form, vehicle_id: effectiveVehicleId });
-    if (!parsed.success) {
-      setFieldErrors(fieldErrorsFrom(parsed.error));
+    const found = validateTrip({ ...form, vehicle_id: effectiveVehicleId }, selectedCapacityKg);
+    if (hasErrors(found)) {
+      setErrors(found);
+      setFormError("Some details need fixing.");
       return;
     }
-
-    // Cross-field rule (docs/04_API_CONTRACT.md §4): cargo must not exceed the selected
-    // vehicle's capacity. The dispatchable-vehicles fetch already filters by cargoKg, so this
-    // should be unreachable in practice — kept as a safety net for the gap between typing and
-    // the refetch settling.
-    if (selectedVehicle && parsed.data.cargo_weight_kg > selectedVehicle.max_load_capacity_kg) {
-      setFieldErrors({
-        cargo_weight_kg: `Exceeds ${selectedVehicle.registration_number}'s capacity (${selectedVehicle.max_load_capacity_kg} kg)`,
-      });
-      return;
-    }
-
+    setErrors({});
     setSubmitting(true);
+
     try {
-      await api.trips.create(parsed.data);
-      setIsNewTripOpen(false);
-      setForm(BLANK_TRIP);
+      await api.trips.create({
+        vehicle_id: effectiveVehicleId,
+        driver_id: form.driver_id,
+        source_city: form.source_city.trim(),
+        dest_city: form.dest_city.trim(),
+        cargo_weight_kg: Number(form.cargo_weight_kg),
+        planned_distance_km: form.planned_distance_km ? Number(form.planned_distance_km) : undefined,
+        revenue: form.revenue ? Number(form.revenue) : undefined,
+      });
+      closeNewTrip();
       reload();
     } catch (err) {
-      if (err instanceof ApiError) {
-        setFormError(err.message);
-        if (err.fields) setFieldErrors(err.fields);
-      } else {
-        setFormError("Failed to create trip");
-      }
+      // e.g. CARGO_EXCEEDS_CAPACITY or UNKNOWN_CITY — both arrive keyed by field.
+      setErrors(fieldErrorsFrom(err));
+      setFormError(formMessageFrom(err, "Failed to create trip"));
     } finally {
       setSubmitting(false);
     }
@@ -184,13 +232,6 @@ export default function TripsPage() {
     );
   }
 
-  function closeNewTrip() {
-    setIsNewTripOpen(false);
-    setForm(BLANK_TRIP);
-    setFormError(null);
-    setFieldErrors({});
-  }
-
   return (
     <AppShell eyebrow="Operations" title="Trips & Dispatch">
       <KpiGrid
@@ -198,7 +239,7 @@ export default function TripsPage() {
           { label: "Draft (Pending Dispatch)", value: draftCount },
           { label: "Dispatched", value: dispatchedCount },
           { label: "Completed", value: completedCount },
-          { label: "Total Revenue", value: fmtMoney(totalRevenue) },
+          { label: "Total Revenue", value: fmtMoney(totalRevenue), sub: "completed trips" },
         ]}
       />
 
@@ -206,19 +247,43 @@ export default function TripsPage() {
         <div>
           <div className="table-toolbar">
             <div className="table-filters">
-              <select className="select" value={status} onChange={(e) => setStatus(e.target.value)}>
+              <select
+                className="select select-sm"
+                value={status}
+                onChange={(e) => {
+                  setStatus(e.target.value);
+                  setPage(1);
+                }}
+              >
                 <option value="">All Statuses</option>
                 <option value="draft">Draft</option>
                 <option value="dispatched">Dispatched</option>
                 <option value="completed">Completed</option>
                 <option value="cancelled">Cancelled</option>
               </select>
+              <div className="search-field">
+                <SearchIcon />
+                <input
+                  className="input"
+                  type="text"
+                  placeholder="Search source or destination city…"
+                  value={search}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
+                />
+              </div>
             </div>
-            {canWrite && (
+            {canDispatch ? (
               <button className="btn btn-primary" onClick={() => setIsNewTripOpen(true)}>
                 <PlusIcon style={{ width: 16, height: 16 }} />
                 New Trip
               </button>
+            ) : (
+              <span className="text-body-sm u-muted-soft">
+                Only Dispatchers can create or manage trips (you&apos;re signed in as {ROLE_LABELS[user?.role ?? ""] ?? user?.role}).
+              </span>
             )}
           </div>
 
@@ -234,16 +299,17 @@ export default function TripsPage() {
             <ErrorBlock message={error} onRetry={reload} />
           ) : (
             <div className="table-wrap">
+              <div className="table-scroll">
               <table className="data-table">
                 <thead>
                   <tr>
-                    <th>Route</th>
+                    <SortableTh label="Route" field="source_city" sort={sort} onSort={toggleSort} />
                     <th>Vehicle</th>
                     <th>Driver</th>
-                    <th>Cargo</th>
-                    <th>Revenue</th>
-                    <th>Status</th>
-                    <th>Dispatched</th>
+                    <SortableTh label="Cargo" field="cargo_weight_kg" sort={sort} onSort={toggleSort} />
+                    <SortableTh label="Revenue" field="revenue" sort={sort} onSort={toggleSort} />
+                    <SortableTh label="Status" field="status" sort={sort} onSort={toggleSort} />
+                    <SortableTh label="Dispatched" field="dispatched_at" sort={sort} onSort={toggleSort} />
                     <th></th>
                   </tr>
                 </thead>
@@ -270,8 +336,8 @@ export default function TripsPage() {
                           <td className="cell-muted">{fmtDateTime(t.dispatched_at)}</td>
                           <td>
                             <div style={{ display: "flex", gap: 4 }}>
-                              {!canWrite ? (
-                                <span className="cell-muted text-body-sm">View only</span>
+                              {!canDispatch ? (
+                                <span className="cell-muted text-caption">—</span>
                               ) : t.status === "draft" ? (
                                 <>
                                   <button
@@ -315,6 +381,13 @@ export default function TripsPage() {
                   )}
                 </tbody>
               </table>
+              </div>
+              <Pagination
+                page={page}
+                pageSize={PAGE_SIZE}
+                total={data?.tripsTotal ?? 0}
+                onPageChange={setPage}
+              />
             </div>
           )}
         </div>
@@ -331,7 +404,7 @@ export default function TripsPage() {
                 </p>
               </div>
             </div>
-            <div className="panel-body">
+            <div className="panel-body panel-body-scroll">
               {!data ? (
                 <LoadingInline />
               ) : data.draftTrips.length === 0 ? (
@@ -362,7 +435,7 @@ export default function TripsPage() {
                               </div>
                               <div className="text-caption match-reason">{s.reasons.join(" · ")}</div>
                             </div>
-                            {canWrite && (
+                            {canDispatch ? (
                               <button
                                 className="btn btn-sm btn-primary"
                                 disabled={busyTripId === trip.id}
@@ -370,7 +443,7 @@ export default function TripsPage() {
                               >
                                 Use
                               </button>
-                            )}
+                            ) : null}
                           </div>
                         ))
                       )}
@@ -392,82 +465,45 @@ export default function TripsPage() {
             <button className="btn btn-outline-muted" onClick={closeNewTrip}>
               Cancel
             </button>
-            <button className="btn btn-primary" onClick={handleCreateTrip} disabled={submitting || candidatesLoading}>
+            <button
+              className="btn btn-primary"
+              type="submit"
+              form={TRIP_FORM_ID}
+              disabled={submitting || candidatesLoading}
+            >
               {submitting ? "Creating…" : "Create Trip"}
             </button>
           </>
         }
       >
-        <form className="form-grid" onSubmit={handleCreateTrip}>
-          <div className="field">
-            <label className="label">Source City</label>
+        <form className="form-grid" id={TRIP_FORM_ID} onSubmit={handleCreateTrip} noValidate>
+          <RequiredLegend />
+
+          {formError ? <FormAlert message={formError} count={Object.keys(errors).length} /> : null}
+
+          <Field id="source_city" label="Source City" required error={errors.source_city}>
             <input
               className="input"
               placeholder="Ahmedabad"
               value={form.source_city}
-              onChange={(e) => setForm({ ...form, source_city: e.target.value })}
-              required
+              onChange={(e) => update({ source_city: e.target.value })}
             />
-            {fieldErrors.source_city && <p className="field-error">{fieldErrors.source_city}</p>}
-          </div>
-          <div className="field">
-            <label className="label">Destination City</label>
+          </Field>
+
+          <Field id="dest_city" label="Destination City" required error={errors.dest_city}>
             <input
               className="input"
               placeholder="Mumbai"
               value={form.dest_city}
-              onChange={(e) => setForm({ ...form, dest_city: e.target.value })}
-              required
+              onChange={(e) => update({ dest_city: e.target.value })}
             />
-            {fieldErrors.dest_city && <p className="field-error">{fieldErrors.dest_city}</p>}
-          </div>
-          <div className="field">
-            <label className="label">Cargo Weight (kg)</label>
-            <input
-              className="input"
-              type="number"
-              placeholder="16200"
-              value={form.cargo_weight_kg}
-              onChange={(e) => setForm({ ...form, cargo_weight_kg: e.target.value })}
-              required
-            />
-            {selectedVehicle && cargoKg > 0 ? (
-              <>
-                <Meter
-                  value={Math.min(100, (cargoKg / selectedVehicle.max_load_capacity_kg) * 100)}
-                 
-                  fillClassName={cargoKg > selectedVehicle.max_load_capacity_kg ? "is-warning" : ""}
-                />
-                <p className="text-caption u-muted-soft">
-                  {cargoKg} / {selectedVehicle.max_load_capacity_kg} kg capacity (
-                  {selectedVehicle.registration_number})
-                </p>
-              </>
-            ) : null}
-            {fieldErrors.cargo_weight_kg && (
-              <p className="field-error">{fieldErrors.cargo_weight_kg}</p>
-            )}
-          </div>
-          <div className="field">
-            <label className="label">Planned Distance (km, optional)</label>
-            <input
-              className="input"
-              type="number"
-              placeholder="Auto-computed if left blank"
-              value={form.planned_distance_km}
-              onChange={(e) => setForm({ ...form, planned_distance_km: e.target.value })}
-            />
-            {fieldErrors.planned_distance_km && (
-              <p className="field-error">{fieldErrors.planned_distance_km}</p>
-            )}
-          </div>
-          <div className="field">
-            <label className="label">Vehicle</label>
+          </Field>
+
+          <Field id="vehicle_id" label="Vehicle" required error={errors.vehicle_id}>
             <select
               className="select"
               value={effectiveVehicleId}
-              onChange={(e) => setForm({ ...form, vehicle_id: e.target.value })}
-              required
+              onChange={(e) => update({ vehicle_id: e.target.value })}
               disabled={candidatesLoading}
             >
               <option value="">
@@ -479,19 +515,17 @@ export default function TripsPage() {
               </option>
               {candidateVehicles.map((v) => (
                 <option key={v.id} value={v.id}>
-                  {v.registration_number} · {v.name_model} ({v.max_load_capacity_kg} kg)
+                  {v.registration_number} · {v.name_model} · {fmtNumber(v.max_load_capacity_kg)} kg
                 </option>
               ))}
             </select>
-            {fieldErrors.vehicle_id && <p className="field-error">{fieldErrors.vehicle_id}</p>}
-          </div>
-          <div className="field">
-            <label className="label">Driver</label>
+          </Field>
+
+          <Field id="driver_id" label="Driver" required error={errors.driver_id}>
             <select
               className="select"
               value={form.driver_id}
-              onChange={(e) => setForm({ ...form, driver_id: e.target.value })}
-              required
+              onChange={(e) => update({ driver_id: e.target.value })}
               disabled={candidatesLoading}
             >
               <option value="">{candidatesLoading ? "Loading…" : "Select a driver"}</option>
@@ -501,23 +535,65 @@ export default function TripsPage() {
                 </option>
               ))}
             </select>
-            {fieldErrors.driver_id && <p className="field-error">{fieldErrors.driver_id}</p>}
-          </div>
-          <div className="field span-2">
-            <label className="label">Revenue (₹, optional)</label>
+          </Field>
+
+          <Field
+            id="cargo_weight_kg"
+            label="Cargo Weight (kg)"
+            required
+            error={errors.cargo_weight_kg}
+            hint={
+              selectedCapacityKg ? (
+                <>
+                  <Meter
+                    value={Math.min(100, (cargoKg / selectedCapacityKg) * 100)}
+                    className="mb-xxs"
+                    fillClassName={cargoKg > selectedCapacityKg ? "is-warning" : ""}
+                  />
+                  {fmtNumber(cargoKg)} / {fmtNumber(selectedCapacityKg)} kg for the selected vehicle
+                </>
+              ) : (
+                "Pick a vehicle to see its capacity limit."
+              )
+            }
+          >
             <input
               className="input"
               type="number"
+              min="1"
+              max={selectedCapacityKg}
+              placeholder="16200"
+              value={form.cargo_weight_kg}
+              onChange={(e) => update({ cargo_weight_kg: e.target.value })}
+            />
+          </Field>
+
+          <Field
+            id="planned_distance_km"
+            label="Planned Distance (km)"
+            error={errors.planned_distance_km}
+            hint="Auto-computed from the two cities if left blank."
+          >
+            <input
+              className="input"
+              type="number"
+              min="1"
+              placeholder="Auto-computed"
+              value={form.planned_distance_km}
+              onChange={(e) => update({ planned_distance_km: e.target.value })}
+            />
+          </Field>
+
+          <Field id="revenue" label="Revenue (₹)" error={errors.revenue} span2>
+            <input
+              className="input"
+              type="number"
+              min="0"
               placeholder="68000"
               value={form.revenue}
-              onChange={(e) => setForm({ ...form, revenue: e.target.value })}
+              onChange={(e) => update({ revenue: e.target.value })}
             />
-          </div>
-          {formError ? (
-            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
-              {formError}
-            </p>
-          ) : null}
+          </Field>
         </form>
       </Modal>
 
@@ -543,27 +619,58 @@ function CompleteTripModal({
   onClose: () => void;
   onDone: () => void;
 }) {
-  const [actualDistance, setActualDistance] = useState("");
-  const [finalOdometer, setFinalOdometer] = useState("");
-  const [liters, setLiters] = useState("");
-  const [fuelCost, setFuelCost] = useState("");
+  const [values, setValues] = useState<CompleteTripFormValues>({
+    actual_distance_km: "",
+    final_odometer_km: "",
+    liters: "",
+    fuel_cost: "",
+  });
+  const [errors, setErrors] = useState<FieldErrors>({});
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  async function handleSubmit(e: React.SyntheticEvent) {
+  function update(patch: Partial<CompleteTripFormValues>) {
+    setValues((prev) => ({ ...prev, ...patch }));
+    setErrors((prev) => {
+      const next = { ...prev };
+      for (const key of Object.keys(patch)) delete next[key];
+      // Litres and cost are validated as a pair, so clear both when either changes.
+      if ("liters" in patch || "fuel_cost" in patch) {
+        delete next.liters;
+        delete next.fuel_cost;
+      }
+      return next;
+    });
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!trip) return;
     setError(null);
+
+    const found = validateCompleteTrip(values);
+    if (hasErrors(found)) {
+      setErrors(found);
+      setError("Some details need fixing.");
+      return;
+    }
+    setErrors({});
     setSubmitting(true);
+
     try {
       await api.trips.complete(trip.id, {
-        actual_distance_km: Number(actualDistance),
-        final_odometer_km: Number(finalOdometer),
-        fuel: liters && fuelCost ? { liters: Number(liters), cost: Number(fuelCost) } : undefined,
+        actual_distance_km: Number(values.actual_distance_km),
+        final_odometer_km: Number(values.final_odometer_km),
+        fuel:
+          values.liters && values.fuel_cost
+            ? { liters: Number(values.liters), cost: Number(values.fuel_cost) }
+            : undefined,
       });
       onDone();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Failed to complete trip");
+      // ODOMETER_REGRESSION comes back keyed to final_odometer_km.
+      setErrors(fieldErrorsFrom(err));
+      setError(formMessageFrom(err, "Failed to complete trip"));
     } finally {
       setSubmitting(false);
     }
@@ -581,47 +688,79 @@ function CompleteTripModal({
           <button className="btn btn-outline-muted" onClick={onClose}>
             Cancel
           </button>
-          <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting}>
+          <button
+            className="btn btn-primary"
+            type="submit"
+            form={COMPLETE_FORM_ID}
+            disabled={submitting}
+          >
             {submitting ? "Saving…" : "Mark Completed"}
           </button>
         </>
       }
     >
-      <form className="form-grid" onSubmit={handleSubmit}>
-        <div className="field">
-          <label className="label">Actual Distance (km)</label>
+      <form className="form-grid" id={COMPLETE_FORM_ID} onSubmit={handleSubmit} noValidate>
+        <RequiredLegend />
+
+        {error ? <FormAlert message={error} count={Object.keys(errors).length} /> : null}
+
+        <Field
+          id="actual_distance_km"
+          label="Actual Distance (km)"
+          required
+          error={errors.actual_distance_km}
+          hint={`Planned: ${fmtNumber(trip.planned_distance_km)} km`}
+        >
           <input
             className="input"
             type="number"
+            min="1"
             placeholder={String(trip.planned_distance_km)}
-            value={actualDistance}
-            onChange={(e) => setActualDistance(e.target.value)}
-            required
+            value={values.actual_distance_km}
+            onChange={(e) => update({ actual_distance_km: e.target.value })}
           />
-        </div>
-        <div className="field">
-          <label className="label">Final Odometer (km)</label>
+        </Field>
+
+        <Field
+          id="final_odometer_km"
+          label="Final Odometer (km)"
+          required
+          error={errors.final_odometer_km}
+          hint="Cannot be lower than the vehicle's current reading."
+        >
           <input
             className="input"
             type="number"
-            value={finalOdometer}
-            onChange={(e) => setFinalOdometer(e.target.value)}
-            required
+            min="1"
+            value={values.final_odometer_km}
+            onChange={(e) => update({ final_odometer_km: e.target.value })}
           />
-        </div>
-        <div className="field">
-          <label className="label">Fuel Liters (optional)</label>
-          <input className="input" type="number" value={liters} onChange={(e) => setLiters(e.target.value)} />
-        </div>
-        <div className="field">
-          <label className="label">Fuel Cost ₹ (optional)</label>
-          <input className="input" type="number" value={fuelCost} onChange={(e) => setFuelCost(e.target.value)} />
-        </div>
-        {error ? (
-          <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
-            {error}
-          </p>
-        ) : null}
+        </Field>
+
+        <Field
+          id="liters"
+          label="Fuel Litres"
+          error={errors.liters}
+          hint="Leave both fuel boxes blank to skip the fuel log."
+        >
+          <input
+            className="input"
+            type="number"
+            min="1"
+            value={values.liters}
+            onChange={(e) => update({ liters: e.target.value })}
+          />
+        </Field>
+
+        <Field id="fuel_cost" label="Fuel Cost (₹)" error={errors.fuel_cost}>
+          <input
+            className="input"
+            type="number"
+            min="1"
+            value={values.fuel_cost}
+            onChange={(e) => update({ fuel_cost: e.target.value })}
+          />
+        </Field>
       </form>
     </Modal>
   );

@@ -5,7 +5,6 @@ import { useParams } from "next/navigation";
 import { AppShell } from "@/components/shell/app-shell";
 import { Tabs } from "@/components/ui/tabs";
 import { Modal } from "@/components/ui/modal";
-import { PlusIcon } from "@/components/icons";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import {
   VehicleStatusBadge,
@@ -14,18 +13,27 @@ import {
   MaintenanceStatusBadge,
   TripStatusBadge,
 } from "@/components/ui/status-badge";
+import { Pagination } from "@/components/ui/pagination";
+import { SortableTh } from "@/components/ui/sortable-th";
+import { PlusIcon, SearchIcon } from "@/components/icons";
 import {
   api,
   ApiError,
   type DriverOut,
+  type VehicleDocumentOut,
+  type MaintenanceOut,
+  type FuelLogOut,
+  type ExpenseOut,
+  type TripOut,
   type VehicleType,
   type VehicleStatus,
   type MaintenanceType,
   type ExpenseType,
 } from "@/lib/api";
-import { useAuth } from "@/lib/auth-context";
 import { useFetch } from "@/lib/use-fetch";
-import { can } from "@/lib/rbac";
+import { usePagedRows } from "@/lib/use-paged-rows";
+import { useAuth } from "@/lib/auth-context";
+import { canWriteVehicles, canWriteMaintenance, canWriteCosts } from "@/lib/roles";
 import {
   fmtMoney,
   fmtDate,
@@ -62,9 +70,9 @@ async function loadVehicle(id: string) {
 export default function VehicleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
-  const canWriteVehicle = can.writeVehicles(user?.role);
-  const canWriteMaintenance = can.writeMaintenance(user?.role);
-  const canWriteCosts = can.writeCosts(user?.role);
+  const canManage = canWriteVehicles(user?.role);
+  const canManageMaintenance = canWriteMaintenance(user?.role);
+  const canManageCosts = canWriteCosts(user?.role);
   const { data, loading, error, reload } = useFetch(() => loadVehicle(id), [id]);
 
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -113,6 +121,52 @@ export default function VehicleDetailPage() {
     [data]
   );
 
+  const documentsPaged = usePagedRows<VehicleDocumentOut>(data?.documents ?? [], {
+    searchFields: (d) => [d.document_number, DOCUMENT_TYPE_LABELS[d.document_type]],
+    sortFns: {
+      document_type: (a, b) => a.document_type.localeCompare(b.document_type),
+      expiry_date: (a, b) => new Date(a.expiry_date).getTime() - new Date(b.expiry_date).getTime(),
+      status: (a, b) => a.status.localeCompare(b.status),
+    },
+    defaultSort: "expiry_date",
+  });
+  const maintenancePaged = usePagedRows<MaintenanceOut>(data?.maintenance ?? [], {
+    searchFields: (m) => [m.description, MAINTENANCE_TYPE_LABELS[m.maintenance_type]],
+    sortFns: {
+      maintenance_type: (a, b) => a.maintenance_type.localeCompare(b.maintenance_type),
+      cost: (a, b) => a.cost - b.cost,
+      status: (a, b) => a.status.localeCompare(b.status),
+      opened_at: (a, b) => new Date(a.opened_at).getTime() - new Date(b.opened_at).getTime(),
+    },
+    defaultSort: "-opened_at",
+  });
+  const fuelPaged = usePagedRows<FuelLogOut>(data?.fuel ?? [], {
+    sortFns: {
+      logged_at: (a, b) => new Date(a.logged_at).getTime() - new Date(b.logged_at).getTime(),
+      liters: (a, b) => a.liters - b.liters,
+      cost: (a, b) => a.cost - b.cost,
+    },
+    defaultSort: "-logged_at",
+  });
+  const expensesPaged = usePagedRows<ExpenseOut>(data?.expenses ?? [], {
+    searchFields: (e) => [e.notes, EXPENSE_TYPE_LABELS[e.expense_type]],
+    sortFns: {
+      expense_type: (a, b) => a.expense_type.localeCompare(b.expense_type),
+      amount: (a, b) => a.amount - b.amount,
+      created_at: (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime(),
+    },
+    defaultSort: "-created_at",
+  });
+  const tripsPaged = usePagedRows<TripOut>(data?.trips ?? [], {
+    searchFields: (t) => [t.source_city, t.dest_city],
+    sortFns: {
+      revenue: (a, b) => a.revenue - b.revenue,
+      status: (a, b) => a.status.localeCompare(b.status),
+      dispatched_at: (a, b) =>
+        new Date(a.dispatched_at ?? 0).getTime() - new Date(b.dispatched_at ?? 0).getTime(),
+    },
+  });
+
   if (loading) {
     return (
       <AppShell eyebrow="Vehicles" title="Loading…" backHref="/vehicles">
@@ -129,7 +183,7 @@ export default function VehicleDetailPage() {
     );
   }
 
-  const { vehicle, documents, maintenance, fuel, expenses, trips } = data;
+  const { vehicle } = data;
   const { costs, metrics } = vehicle;
 
   function openEdit() {
@@ -255,24 +309,26 @@ export default function VehicleDetailPage() {
       title={vehicle.registration_number}
       backHref="/vehicles"
       actions={
-        <>
-          {canWriteVehicle && (
-            <button className="btn btn-outline-muted btn-sm" onClick={openEdit}>
-              Edit
-            </button>
-          )}
-          {canWriteMaintenance && (
-            <button
-              className="btn btn-primary btn-sm"
-              onClick={() => {
-                setMaintenanceError(null);
-                setIsMaintenanceOpen(true);
-              }}
-            >
-              Log Maintenance
-            </button>
-          )}
-        </>
+        canManage || canManageMaintenance ? (
+          <>
+            {canManage && (
+              <button className="btn btn-outline-muted btn-sm" onClick={openEdit}>
+                Edit
+              </button>
+            )}
+            {canManageMaintenance && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  setMaintenanceError(null);
+                  setIsMaintenanceOpen(true);
+                }}
+              >
+                Log Maintenance
+              </button>
+            )}
+          </>
+        ) : undefined
       }
     >
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", marginBottom: "var(--space-sm)" }}>
@@ -364,21 +420,35 @@ export default function VehicleDetailPage() {
             id: "documents",
             label: "Documents",
             content: (
+              <div>
+                <div className="table-toolbar table-toolbar-tab">
+                  <div className="search-field">
+                    <SearchIcon />
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Search documents…"
+                      value={documentsPaged.query}
+                      onChange={(e) => documentsPaged.updateQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
               <div className="table-wrap">
+                <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Document Type</th>
+                      <SortableTh label="Document Type" field="document_type" sort={documentsPaged.sort} onSort={documentsPaged.toggleSort} />
                       <th>Number</th>
-                      <th>Expiry Date</th>
-                      <th>Status</th>
+                      <SortableTh label="Expiry Date" field="expiry_date" sort={documentsPaged.sort} onSort={documentsPaged.toggleSort} />
+                      <SortableTh label="Status" field="status" sort={documentsPaged.sort} onSort={documentsPaged.toggleSort} />
                     </tr>
                   </thead>
                   <tbody>
-                    {documents.length === 0 ? (
+                    {documentsPaged.pageRows.length === 0 ? (
                       <TableRowState colSpan={4}>No documents on file.</TableRowState>
                     ) : (
-                      documents.map((d) => (
+                      documentsPaged.pageRows.map((d) => (
                         <tr key={d.id}>
                           <td className="cell-strong">{DOCUMENT_TYPE_LABELS[d.document_type] ?? d.document_type}</td>
                           <td className="cell-muted">{d.document_number ?? "—"}</td>
@@ -391,6 +461,14 @@ export default function VehicleDetailPage() {
                     )}
                   </tbody>
                 </table>
+                </div>
+                <Pagination
+                  page={documentsPaged.page}
+                  pageSize={documentsPaged.pageSize}
+                  total={documentsPaged.total}
+                  onPageChange={documentsPaged.setPage}
+                />
+              </div>
               </div>
             ),
           },
@@ -398,23 +476,37 @@ export default function VehicleDetailPage() {
             id: "maintenance",
             label: "Maintenance",
             content: (
+              <div>
+                <div className="table-toolbar table-toolbar-tab">
+                  <div className="search-field">
+                    <SearchIcon />
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Search maintenance…"
+                      value={maintenancePaged.query}
+                      onChange={(e) => maintenancePaged.updateQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
               <div className="table-wrap">
+                <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
-                      <th>Type</th>
-                      <th>Cost</th>
-                      <th>Status</th>
-                      <th>Opened</th>
+                      <SortableTh label="Type" field="maintenance_type" sort={maintenancePaged.sort} onSort={maintenancePaged.toggleSort} />
+                      <SortableTh label="Cost" field="cost" sort={maintenancePaged.sort} onSort={maintenancePaged.toggleSort} />
+                      <SortableTh label="Status" field="status" sort={maintenancePaged.sort} onSort={maintenancePaged.toggleSort} />
+                      <SortableTh label="Opened" field="opened_at" sort={maintenancePaged.sort} onSort={maintenancePaged.toggleSort} />
                       <th>Closed</th>
                       <th></th>
                     </tr>
                   </thead>
                   <tbody>
-                    {maintenance.length === 0 ? (
+                    {maintenancePaged.pageRows.length === 0 ? (
                       <TableRowState colSpan={6}>No maintenance history.</TableRowState>
                     ) : (
-                      maintenance.map((m) => (
+                      maintenancePaged.pageRows.map((m) => (
                         <tr key={m.id}>
                           <td className="cell-strong">{MAINTENANCE_TYPE_LABELS[m.maintenance_type] ?? m.maintenance_type}</td>
                           <td>{fmtMoney(m.cost)}</td>
@@ -424,7 +516,7 @@ export default function VehicleDetailPage() {
                           <td className="cell-muted">{fmtDateTime(m.opened_at)}</td>
                           <td className="cell-muted">{fmtDateTime(m.closed_at)}</td>
                           <td>
-                            {canWriteMaintenance && m.status === "open" && (
+                            {canManageMaintenance && m.status === "open" && (
                               <button
                                 className="btn btn-sm btn-outline-muted"
                                 onClick={() => {
@@ -442,6 +534,14 @@ export default function VehicleDetailPage() {
                     )}
                   </tbody>
                 </table>
+                </div>
+                <Pagination
+                  page={maintenancePaged.page}
+                  pageSize={maintenancePaged.pageSize}
+                  total={maintenancePaged.total}
+                  onPageChange={maintenancePaged.setPage}
+                />
+              </div>
               </div>
             ),
           },
@@ -450,8 +550,8 @@ export default function VehicleDetailPage() {
             label: "Fuel Logs",
             content: (
               <div>
-                {canWriteCosts && (
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "var(--space-xs)" }}>
+                {canManageCosts && (
+                  <div className="table-toolbar table-toolbar-tab" style={{ justifyContent: "flex-end" }}>
                     <button
                       className="btn btn-primary btn-sm"
                       onClick={() => {
@@ -465,20 +565,21 @@ export default function VehicleDetailPage() {
                   </div>
                 )}
                 <div className="table-wrap">
+                  <div className="table-scroll">
                   <table className="data-table">
                     <thead>
                       <tr>
-                        <th>Logged At</th>
-                        <th>Liters</th>
-                        <th>Cost</th>
+                        <SortableTh label="Logged At" field="logged_at" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
+                        <SortableTh label="Liters" field="liters" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
+                        <SortableTh label="Cost" field="cost" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
                         <th>₹/Liter</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {fuel.length === 0 ? (
+                      {fuelPaged.pageRows.length === 0 ? (
                         <TableRowState colSpan={4}>No fuel logs recorded.</TableRowState>
                       ) : (
-                        fuel.map((f) => (
+                        fuelPaged.pageRows.map((f) => (
                           <tr key={f.id}>
                             <td className="cell-strong">{fmtDateTime(f.logged_at)}</td>
                             <td>{f.liters} L</td>
@@ -489,6 +590,13 @@ export default function VehicleDetailPage() {
                       )}
                     </tbody>
                   </table>
+                  </div>
+                  <Pagination
+                    page={fuelPaged.page}
+                    pageSize={fuelPaged.pageSize}
+                    total={fuelPaged.total}
+                    onPageChange={fuelPaged.setPage}
+                  />
                 </div>
               </div>
             ),
@@ -498,8 +606,18 @@ export default function VehicleDetailPage() {
             label: "Expenses",
             content: (
               <div>
-                {canWriteCosts && (
-                  <div style={{ display: "flex", justifyContent: "flex-end", marginBottom: "var(--space-xs)" }}>
+                <div className="table-toolbar table-toolbar-tab">
+                  <div className="search-field">
+                    <SearchIcon />
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Search expenses…"
+                      value={expensesPaged.query}
+                      onChange={(e) => expensesPaged.updateQuery(e.target.value)}
+                    />
+                  </div>
+                  {canManageCosts && (
                     <button
                       className="btn btn-primary btn-sm"
                       onClick={() => {
@@ -510,34 +628,42 @@ export default function VehicleDetailPage() {
                       <PlusIcon style={{ width: 14, height: 14 }} />
                       Add Expense
                     </button>
-                  </div>
-                )}
-                <div className="table-wrap">
-                  <table className="data-table">
-                    <thead>
-                      <tr>
-                        <th>Type</th>
-                        <th>Amount</th>
-                        <th>Notes</th>
-                        <th>Date</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {expenses.length === 0 ? (
-                        <TableRowState colSpan={4}>No expenses recorded.</TableRowState>
-                      ) : (
-                        expenses.map((e) => (
-                          <tr key={e.id}>
-                            <td className="cell-strong">{EXPENSE_TYPE_LABELS[e.expense_type] ?? e.expense_type}</td>
-                            <td>{fmtMoney(e.amount)}</td>
-                            <td className="cell-muted">{e.notes ?? "—"}</td>
-                            <td className="cell-muted">{fmtDateTime(e.created_at)}</td>
-                          </tr>
-                        ))
-                      )}
-                    </tbody>
-                  </table>
+                  )}
                 </div>
+              <div className="table-wrap">
+                <div className="table-scroll">
+                <table className="data-table">
+                  <thead>
+                    <tr>
+                      <SortableTh label="Type" field="expense_type" sort={expensesPaged.sort} onSort={expensesPaged.toggleSort} />
+                      <SortableTh label="Amount" field="amount" sort={expensesPaged.sort} onSort={expensesPaged.toggleSort} />
+                      <th>Notes</th>
+                      <SortableTh label="Date" field="created_at" sort={expensesPaged.sort} onSort={expensesPaged.toggleSort} />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {expensesPaged.pageRows.length === 0 ? (
+                      <TableRowState colSpan={4}>No expenses recorded.</TableRowState>
+                    ) : (
+                      expensesPaged.pageRows.map((e) => (
+                        <tr key={e.id}>
+                          <td className="cell-strong">{EXPENSE_TYPE_LABELS[e.expense_type] ?? e.expense_type}</td>
+                          <td>{fmtMoney(e.amount)}</td>
+                          <td className="cell-muted">{e.notes ?? "—"}</td>
+                          <td className="cell-muted">{fmtDateTime(e.created_at)}</td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+                </div>
+                <Pagination
+                  page={expensesPaged.page}
+                  pageSize={expensesPaged.pageSize}
+                  total={expensesPaged.total}
+                  onPageChange={expensesPaged.setPage}
+                />
+              </div>
               </div>
             ),
           },
@@ -545,22 +671,36 @@ export default function VehicleDetailPage() {
             id: "trips",
             label: "Trips",
             content: (
+              <div>
+                <div className="table-toolbar table-toolbar-tab">
+                  <div className="search-field">
+                    <SearchIcon />
+                    <input
+                      className="input"
+                      type="text"
+                      placeholder="Search route…"
+                      value={tripsPaged.query}
+                      onChange={(e) => tripsPaged.updateQuery(e.target.value)}
+                    />
+                  </div>
+                </div>
               <div className="table-wrap">
+                <div className="table-scroll">
                 <table className="data-table">
                   <thead>
                     <tr>
                       <th>Route</th>
                       <th>Driver</th>
-                      <th>Revenue</th>
-                      <th>Status</th>
-                      <th>Dispatched</th>
+                      <SortableTh label="Revenue" field="revenue" sort={tripsPaged.sort} onSort={tripsPaged.toggleSort} />
+                      <SortableTh label="Status" field="status" sort={tripsPaged.sort} onSort={tripsPaged.toggleSort} />
+                      <SortableTh label="Dispatched" field="dispatched_at" sort={tripsPaged.sort} onSort={tripsPaged.toggleSort} />
                     </tr>
                   </thead>
                   <tbody>
-                    {trips.length === 0 ? (
+                    {tripsPaged.pageRows.length === 0 ? (
                       <TableRowState colSpan={5}>No trips recorded for this vehicle.</TableRowState>
                     ) : (
-                      trips.map((t) => {
+                      tripsPaged.pageRows.map((t) => {
                         const driver = driverById.get(t.driver_id);
                         return (
                           <tr key={t.id}>
@@ -579,6 +719,14 @@ export default function VehicleDetailPage() {
                     )}
                   </tbody>
                 </table>
+                </div>
+                <Pagination
+                  page={tripsPaged.page}
+                  pageSize={tripsPaged.pageSize}
+                  total={tripsPaged.total}
+                  onPageChange={tripsPaged.setPage}
+                />
+              </div>
               </div>
             ),
           },

@@ -602,7 +602,62 @@ def seed_alerts(
     return alerts
 
 
-def main() -> None:
+def seed_notifications(
+    db: Session,
+    rng: random.Random,
+    users: dict[str, User],
+    alerts: list[Alert],
+    now: datetime,
+) -> list[Notification]:
+    notifications: list[Notification] = []
+    user_list = list(users.values())
+
+    # Seed some pre-existing read notifications
+    read_messages = [
+        ("Trip dispatched", "Your trip has been successfully dispatched to the driver."),
+        ("Vehicle inspected", "Routine inspection completed for vehicle in your fleet."),
+        ("Fuel log updated", "A new fuel log entry has been recorded."),
+        ("Maintenance closed", "An open maintenance job has been marked as completed."),
+        ("Driver onboarded", "A new driver has been added to the system."),
+    ]
+    for i, (title, message) in enumerate(read_messages):
+        user = user_list[i % len(user_list)]
+        notifications.append(
+            Notification(
+                user_id=user.id,
+                title=title,
+                message=message,
+                is_read=True,
+                created_at=now - timedelta(days=rng.randint(1, 7)),
+            )
+        )
+
+    # Seed unread notifications based on active alerts
+    alert_notif_map = {
+        AlertType.LICENSE_EXPIRY: ("⚠️ License expiry alert", "A driver's license is expired or about to expire. Review required."),
+        AlertType.DOC_EXPIRY: ("📄 Document expiring soon", "A vehicle or driver document is expiring soon. Please renew."),
+        AlertType.MAINTENANCE_DUE: ("🔧 Maintenance required", "A vehicle has an open maintenance job that needs attention."),
+        AlertType.TRIP_ANOMALY: ("🚨 Trip anomaly detected", "An anomaly was detected in a recent trip. Please investigate."),
+    }
+    for alert in alerts[:5]:  # cap at 5 unread to keep demo clean
+        title, message = alert_notif_map.get(alert.type, ("System alert", alert.title))
+        user = rng.choice(user_list)
+        notifications.append(
+            Notification(
+                user_id=user.id,
+                title=title,
+                message=message,
+                is_read=False,
+                created_at=now - timedelta(minutes=rng.randint(5, 120)),
+            )
+        )
+
+    db.add_all(notifications)
+    db.flush()
+    return notifications
+
+
+
     parser = argparse.ArgumentParser(description="Seed the TransitOps database with demo data.")
     parser.add_argument("--reset", action="store_true", help="Delete all existing rows before seeding.")
     args = parser.parse_args()
@@ -638,6 +693,7 @@ def main() -> None:
             db, rng, vehicles, drivers, today
         )
         alerts = seed_alerts(db, rng, reservations, expiring_vehicle_docs, expiring_driver_docs, trips)
+        notifications = seed_notifications(db, rng, users, alerts, now)
 
         db.commit()
     except Exception:
@@ -649,7 +705,7 @@ def main() -> None:
     print("\nSeed complete:")
     print(f"  roles={len(roles)}  users={len(users)}  vehicles={len(vehicles)}  drivers={len(drivers)}")
     print(f"  trips={len(trips)}  fuel_logs={len(fuel_logs)}  expenses={len(expenses)}  maintenance_logs={len(maintenance_logs)}")
-    print(f"  vehicle_documents={len(vehicle_docs)}  driver_documents={len(driver_docs)}  alerts={len(alerts)}")
+    print(f"  vehicle_documents={len(vehicle_docs)}  driver_documents={len(driver_docs)}  alerts={len(alerts)}  notifications={len(notifications)}")
     print("\nDemo accounts (shared password — change before any real deployment):")
     for email, full_name, role_name in DEMO_USERS:
         print(f"  {email:<28} role={role_name:<18} name={full_name}")

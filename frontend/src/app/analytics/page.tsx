@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Meter } from "@/components/ui/meter";
@@ -11,6 +11,8 @@ import { api } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { useEventStream } from "@/lib/use-event-stream";
 import { fmtMoney, ratingFromSafetyScore } from "@/lib/format";
+
+const AUTO_REFRESH_MS = 30_000;
 
 interface ProgressOverride {
   progress_percent: number;
@@ -29,14 +31,25 @@ async function loadAnalytics() {
   return { kpis, fleet, trends, liveTrips, drivers: driversPage.items };
 }
 
+/** "YYYY-MM-DD" → "11 May", parsed from the string directly rather than via `new Date(...)`
+ * (which reads UTC midnight back in the browser's local timezone and can shift the displayed
+ * day by ±1 depending on the viewer's offset). */
+function formatWeekLabel(period: string): string {
+  const [year, month, day] = period.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
 export default function AnalyticsPage() {
   const { data, loading, error, reload } = useFetch(loadAnalytics, []);
 
-  // Live-updates layer: the base list comes from the bootstrap fetch above; individual trips'
-  // positions are nudged forward by SSE `trip.progress` events (simulator + real dispatches)
-  // without waiting for a full refetch. `kpi.refresh` fires on every meaningful write (dispatch,
-  // complete, cancel, maintenance, fuel/expense — see backend/core/events.py) and is the signal
-  // to pull fresh truth, which also drops any trip that has since completed/been cancelled.
+  // Two complementary live-update mechanisms, deliberately kept together:
+  // 1. SSE `trip.progress` nudges individual trip markers forward instantly, and `kpi.refresh`
+  //    (fired on every meaningful write) triggers a full refetch — the primary, low-latency path.
+  // 2. A 30s poll as a backstop: if the SSE connection silently drops, the simulator keeps
+  //    mutating data in the background regardless, so this page must not go stale forever.
+  // The interval's own callback does the setState (via reload), not the effect body itself, so
+  // this doesn't trip react-hooks/set-state-in-effect.
   const [progressOverrides, setProgressOverrides] = useState<Record<string, ProgressOverride>>({});
 
   useEventStream({
@@ -55,6 +68,12 @@ export default function AnalyticsPage() {
     },
     "kpi.refresh": () => reload(),
   });
+
+  useEffect(() => {
+    const interval = setInterval(reload, AUTO_REFRESH_MS);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const liveTrips = useMemo(
     () =>
@@ -96,11 +115,7 @@ export default function AnalyticsPage() {
   );
 
   const fuelTrend = useMemo(
-    () =>
-      (data?.trends.weekly ?? []).map((w) => ({
-        label: new Date(w.period).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
-        value: w.fuel_cost,
-      })),
+    () => (data?.trends.weekly ?? []).map((w) => ({ label: formatWeekLabel(w.period), value: w.fuel_cost })),
     [data]
   );
 
@@ -184,12 +199,27 @@ export default function AnalyticsPage() {
               Weekly Fuel Cost Trend
             </h2>
             <p className="text-body-sm u-muted" style={{ margin: "4px 0 0" }}>
-              Fleet-wide fuel spend, last 8 weeks
+              Fleet-wide fuel spend, last 8 weeks · auto-refreshes every 30s
             </p>
           </div>
+          <button className="btn-text text-body-sm" onClick={reload}>
+            Refresh now
+          </button>
         </div>
         <div className="panel-body">
-          {fuelTrend.length === 0 ? <EmptyBlock label="No fuel logs in this window." /> : <TrendChart data={fuelTrend} />}
+          {fuelTrend.length === 0 ? (
+            <EmptyBlock label="No fuel logs in this window." />
+          ) : (
+            <>
+              <TrendChart data={fuelTrend} />
+              <p className="text-body-sm u-muted-soft" style={{ margin: "var(--space-xs) 0 0" }}>
+                CO₂ output: {data.trends.co2_total_kg.toLocaleString("en-IN")} kg
+                {data.trends.co2_saved_kg > 0
+                  ? ` · ${data.trends.co2_saved_kg.toLocaleString("en-IN")} kg saved vs. a 6 km/l baseline fleet`
+                  : ""}
+              </p>
+            </>
+          )}
         </div>
       </div>
 

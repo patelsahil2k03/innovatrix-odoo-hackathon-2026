@@ -1,6 +1,9 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import Script from "next/script";
 import { AuthProvider } from "@/lib/auth-context";
+import { THEME_BOOT_SCRIPT } from "@/lib/theme";
+import { SIDEBAR_COLLAPSE_BOOT_SCRIPT } from "@/lib/sidebar-collapse";
 import "./globals.css";
 
 const inter = Inter({
@@ -10,7 +13,7 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "TransitOps Super Admin",
+  title: "TransitOps",
   description: "Fleet intelligence platform — vehicles, drivers, trips & analytics.",
 };
 
@@ -20,8 +23,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${inter.variable} h-full antialiased`}>
+    <html lang="en" className={`${inter.variable} h-full antialiased`} suppressHydrationWarning>
       <body className="min-h-full flex flex-col">
+        <Script id="app-boot" strategy="beforeInteractive">
+          {THEME_BOOT_SCRIPT + SIDEBAR_COLLAPSE_BOOT_SCRIPT}
+        </Script>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>

@@ -3,7 +3,7 @@
 import { AppShell } from "@/components/shell/app-shell";
 import { useAuth } from "@/lib/auth-context";
 import { initials } from "@/lib/format";
-import { ROLE_LABELS, type Role } from "@/lib/rbac";
+import { ROLE_LABELS, type Role } from "@/lib/roles";
 
 const ROLES: Role[] = ["fleet_manager", "dispatcher", "safety_officer", "financial_analyst"];
 
