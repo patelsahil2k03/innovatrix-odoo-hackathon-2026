@@ -278,3 +278,17 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_alerts_entity_id'), table_name='alerts')
     op.drop_table('alerts')
     # ### end Alembic commands ###
+
+    # Alembic's autogenerate does not drop native Postgres ENUM types on table drop (a known
+    # limitation) — left alone, a downgrade→upgrade cycle fails with "type already exists" on
+    # the next upgrade. Drop them explicitly, guarded to Postgres only (SQLite has no real
+    # enum type to drop — sa.Enum degrades to VARCHAR+CHECK there).
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        for enum_name in (
+            "alert_type", "alert_severity", "alert_entity_type", "alert_status",
+            "driver_status", "license_category", "vehicle_type", "vehicle_status",
+            "document_type", "maintenance_type", "maintenance_status",
+            "trip_status", "expense_type",
+        ):
+            sa.Enum(name=enum_name).drop(bind, checkfirst=True)
