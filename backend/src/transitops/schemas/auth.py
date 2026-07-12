@@ -7,7 +7,7 @@ from transitops.schemas.common import ORMModel
 
 class LoginRequest(BaseModel):
     email: str = Field(examples=["dispatch@transitops.in"])
-    password: str = Field(min_length=1, examples=["transitops123"])
+    password: str = Field(min_length=1, examples=["Demo@1234"])  # matches Settings.seed_password
 
     @field_validator("email")
     @classmethod

@@ -22,7 +22,7 @@ class AppError(Exception):
         self,
         code: str,
         message: str,
-        status_code: int = status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code: int = status.HTTP_422_UNPROCESSABLE_CONTENT,
         fields: dict[str, str] | None = None,
     ) -> None:
         super().__init__(message)
@@ -91,7 +91,7 @@ def register_error_handlers(app: FastAPI) -> None:
             "VALIDATION_ERROR",
             "Request failed validation",
             fields,
-            status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status.HTTP_422_UNPROCESSABLE_CONTENT,
         )
 
     @app.exception_handler(StarletteHTTPException)

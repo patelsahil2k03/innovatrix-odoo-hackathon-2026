@@ -24,6 +24,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
 from transitops.core.database import SessionLocal
+from transitops.core.settings import get_settings
 from transitops.models import (
     Alert,
     AuditLog,
@@ -68,7 +69,9 @@ from transitops.seed.generators import (
 )
 
 SEED = 1729
-DEMO_PASSWORD = "Demo@1234"  # demo-only, not a real secret
+# Single source of truth is Settings.seed_password (core/settings.py) — the login-example schema
+# and this script both read from there so they can never drift apart again.
+DEMO_PASSWORD = get_settings().seed_password
 
 ROLE_DEFS = [
     (RoleName.FLEET_MANAGER.value, "Manages fleet composition, vehicle allocation, and acquisition decisions."),
