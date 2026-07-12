@@ -329,8 +329,13 @@ export default function VehiclesPage() {
             <input
               className="input"
               placeholder="GJ-01-AB-1234"
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
               value={form.registration_number}
-              onChange={(e) => update({ registration_number: e.target.value })}
+              // Uppercased in state rather than with CSS, so what the user sees is exactly what
+              // gets submitted — and a pasted or autofilled plate is normalised too.
+              onChange={(e) => update({ registration_number: e.target.value.toUpperCase() })}
             />
           </Field>
 

@@ -295,8 +295,12 @@ export default function DriversPage() {
             <input
               className="input"
               placeholder="GJ0120220041233"
+              autoCapitalize="characters"
+              autoComplete="off"
+              spellCheck={false}
               value={form.license_number}
-              onChange={(e) => update({ license_number: e.target.value })}
+              // Uppercased in state, so the field shows exactly what will be submitted.
+              onChange={(e) => update({ license_number: e.target.value.toUpperCase() })}
             />
           </Field>
 
