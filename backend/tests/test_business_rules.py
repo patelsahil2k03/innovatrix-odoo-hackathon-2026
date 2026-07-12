@@ -422,6 +422,75 @@ def test_maintenance_cannot_open_on_a_vehicle_that_is_on_a_trip(
     assert error_code(response) == "VEHICLE_ON_TRIP"
 
 
+def test_cannot_edit_a_vehicle_back_to_available_while_maintenance_is_open(
+    client, as_fleet_manager, as_dispatcher, db_session, vehicle
+):
+    """Editing status must not be a back door around the maintenance workflow (00 §5)."""
+    client.post(
+        "/api/v1/maintenance",
+        json={"vehicle_id": str(vehicle.id), "maintenance_type": "repair", "cost": 5_000},
+        headers=as_fleet_manager,
+    )
+
+    response = client.patch(
+        f"/api/v1/vehicles/{vehicle.id}", json={"status": "available"}, headers=as_fleet_manager
+    )
+    assert response.status_code == 422
+    assert error_code(response) == "MAINTENANCE_OPEN"
+
+    db_session.refresh(vehicle)
+    assert vehicle.status == VehicleStatus.IN_SHOP
+    # …and it is still out of the dispatch pool.
+    assert (
+        client.get("/api/v1/vehicles/dispatchable?cargo_weight_kg=100", headers=as_dispatcher).json()
+        == []
+    )
+
+
+def test_a_vehicle_with_only_fuel_logs_is_retired_not_hard_deleted(
+    client, as_fleet_manager, as_dispatcher, db_session, vehicle
+):
+    """Zero trips but a fuel log still means dependent rows exist — hard delete would FK-violate."""
+    client.post(
+        "/api/v1/fuel-logs",
+        json={"vehicle_id": str(vehicle.id), "liters": 40, "cost": 3_800},
+        headers=as_dispatcher,
+    )
+
+    response = client.delete(f"/api/v1/vehicles/{vehicle.id}", headers=as_fleet_manager)
+    assert response.status_code == 204
+
+    db_session.refresh(vehicle)
+    assert vehicle.status == VehicleStatus.RETIRED
+
+
+def test_a_vehicle_with_no_history_is_hard_deleted(client, as_fleet_manager, vehicle):
+    assert client.delete(f"/api/v1/vehicles/{vehicle.id}", headers=as_fleet_manager).status_code == 204
+    assert (
+        client.get(f"/api/v1/vehicles/{vehicle.id}", headers=as_fleet_manager).status_code == 404
+    )
+
+
+def test_a_driver_on_a_trip_can_still_have_their_phone_corrected(
+    client, as_safety_officer, as_dispatcher, make_trip, driver
+):
+    """Only the status transition is blocked mid-trip (contract §3), not every edit."""
+    trip_id = make_trip()
+    client.post(f"/api/v1/trips/{trip_id}/dispatch", headers=as_dispatcher)
+
+    ok = client.patch(
+        f"/api/v1/drivers/{driver.id}", json={"phone": "+91 9000000000"}, headers=as_safety_officer
+    )
+    assert ok.status_code == 200
+    assert ok.json()["phone"] == "+91 9000000000"
+
+    blocked = client.patch(
+        f"/api/v1/drivers/{driver.id}", json={"status": "suspended"}, headers=as_safety_officer
+    )
+    assert blocked.status_code == 422
+    assert error_code(blocked) == "DRIVER_ON_TRIP"
+
+
 def test_closing_maintenance_leaves_a_retired_vehicle_retired(
     client, as_fleet_manager, db_session, vehicle
 ):
