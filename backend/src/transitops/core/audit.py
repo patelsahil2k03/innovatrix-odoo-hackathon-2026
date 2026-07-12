@@ -14,6 +14,7 @@ import logging
 import re
 import uuid
 
+from starlette.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -63,7 +64,10 @@ class AuditMiddleware(BaseHTTPMiddleware):
             )
 
         try:
-            self._record(request, response.status_code, body)
+            # The ORM here is sync: committing inline would block the event loop — and with it
+            # every other request, the SSE heartbeats, and the simulator — for the duration of
+            # the INSERT. Hand it to a worker thread instead.
+            await run_in_threadpool(self._record, request, response.status_code, body)
         except Exception:
             log.exception("failed to write audit log for %s %s", request.method, request.url.path)
 

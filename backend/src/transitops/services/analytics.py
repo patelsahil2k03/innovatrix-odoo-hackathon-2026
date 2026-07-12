@@ -11,6 +11,7 @@ from sqlalchemy import Select, case, func, select
 from sqlalchemy.orm import Session
 
 from transitops.models.alert import Alert
+from transitops.models.document import VehicleDocument
 from transitops.models.driver import Driver
 from transitops.models.enums import (
     AlertStatus,
@@ -143,12 +144,12 @@ def vehicle_metrics(db: Session, vehicle: Vehicle) -> dict:
         "health_score": health_score(
             _f(vehicle.odometer_km), int(open_jobs), int(all_jobs), expired_docs
         ),
+        # Handed back so callers don't re-run the three cost aggregates we just ran.
+        "costs": costs,
     }
 
 
 def _count_expired_vehicle_docs(db: Session, vehicle_id: uuid.UUID) -> int:
-    from transitops.models.document import VehicleDocument
-
     return int(
         db.scalar(
             select(func.count(VehicleDocument.id)).where(
@@ -157,6 +158,67 @@ def _count_expired_vehicle_docs(db: Session, vehicle_id: uuid.UUID) -> int:
             )
         )
         or 0
+    )
+
+
+def health_scores_for(db: Session, vehicles: list[Vehicle]) -> dict[uuid.UUID, int]:
+    """Health for a whole set of vehicles in a fixed number of queries.
+
+    The per-vehicle path (`vehicle_metrics`) is fine for one row, but callers that score the
+    whole fleet — dispatch suggestions, the fleet report — would otherwise issue a handful of
+    queries *per vehicle*. Everything here is grouped instead.
+    """
+    if not vehicles:
+        return {}
+
+    ids = [v.id for v in vehicles]
+
+    open_jobs = dict(
+        db.execute(
+            select(MaintenanceLog.vehicle_id, func.count(MaintenanceLog.id))
+            .where(
+                MaintenanceLog.vehicle_id.in_(ids),
+                MaintenanceLog.status == MaintenanceStatus.OPEN,
+            )
+            .group_by(MaintenanceLog.vehicle_id)
+        ).all()
+    )
+    all_jobs = dict(
+        db.execute(
+            select(MaintenanceLog.vehicle_id, func.count(MaintenanceLog.id))
+            .where(MaintenanceLog.vehicle_id.in_(ids))
+            .group_by(MaintenanceLog.vehicle_id)
+        ).all()
+    )
+    expired_docs = dict(
+        db.execute(
+            select(VehicleDocument.vehicle_id, func.count(VehicleDocument.id))
+            .where(
+                VehicleDocument.vehicle_id.in_(ids),
+                VehicleDocument.expiry_date < datetime.now(UTC).date(),
+            )
+            .group_by(VehicleDocument.vehicle_id)
+        ).all()
+    )
+
+    return {
+        v.id: health_score(
+            _f(v.odometer_km),
+            int(open_jobs.get(v.id, 0)),
+            int(all_jobs.get(v.id, 0)),
+            int(expired_docs.get(v.id, 0)),
+        )
+        for v in vehicles
+    }
+
+
+def _sum_by_vehicle(db: Session, column, vehicle_column, ids: list[uuid.UUID]) -> dict:
+    return dict(
+        db.execute(
+            select(vehicle_column, func.sum(column))
+            .where(vehicle_column.in_(ids))
+            .group_by(vehicle_column)
+        ).all()
     )
 
 
@@ -274,17 +336,65 @@ def kpis(db: Session, vehicle_type=None, status=None, region=None) -> dict:
 
 
 def fleet_report(db: Session, vehicle_type=None, status=None, region=None) -> list[dict]:
-    """Per-vehicle economics — also the source for `GET /export/csv?report=fleet`."""
-    vehicles = db.scalars(
-        _vehicle_filter(select(Vehicle), vehicle_type, status, region).order_by(
-            Vehicle.registration_number
-        )
-    ).all()
+    """Per-vehicle economics — also the source for `GET /export/csv?report=fleet`.
+
+    Built from grouped aggregates rather than a per-vehicle loop: this runs a fixed ~7 queries
+    whether the fleet is 25 vehicles or 2,500.
+    """
+    vehicles = list(
+        db.scalars(
+            _vehicle_filter(select(Vehicle), vehicle_type, status, region).order_by(
+                Vehicle.registration_number
+            )
+        ).all()
+    )
+    if not vehicles:
+        return []
+
+    ids = [v.id for v in vehicles]
+
+    fuel_cost = _sum_by_vehicle(db, FuelLog.cost, FuelLog.vehicle_id, ids)
+    fuel_liters = _sum_by_vehicle(db, FuelLog.liters, FuelLog.vehicle_id, ids)
+    maint_cost = _sum_by_vehicle(db, MaintenanceLog.cost, MaintenanceLog.vehicle_id, ids)
+    other_cost = _sum_by_vehicle(db, Expense.amount, Expense.vehicle_id, ids)
+    health = health_scores_for(db, vehicles)
+
+    trip_rows = {
+        row[0]: row
+        for row in db.execute(
+            select(
+                Trip.vehicle_id,
+                func.count(Trip.id),
+                func.sum(case((Trip.status == TripStatus.COMPLETED, 1), else_=0)),
+                func.sum(func.coalesce(Trip.actual_distance_km, 0)),
+                func.sum(case((Trip.status == TripStatus.COMPLETED, Trip.revenue), else_=0)),
+            )
+            .where(Trip.vehicle_id.in_(ids))
+            .group_by(Trip.vehicle_id)
+        ).all()
+    }
 
     rows = []
     for vehicle in vehicles:
-        metrics = vehicle_metrics(db, vehicle)
-        costs = vehicle_costs(db, vehicle.id)
+        _, total_trips, completed, distance, revenue = trip_rows.get(
+            vehicle.id, (None, 0, 0, 0, 0)
+        )
+        total_trips, completed = int(total_trips or 0), int(completed or 0)
+        distance, revenue = _f(distance), _f(revenue)
+
+        liters = _f(fuel_liters.get(vehicle.id))
+        op_cost = (
+            _f(fuel_cost.get(vehicle.id))
+            + _f(maint_cost.get(vehicle.id))
+            + _f(other_cost.get(vehicle.id))
+        )
+        acquisition = _f(vehicle.acquisition_cost)
+
+        utilization = 0.0
+        if total_trips:
+            active_or_done = completed + (1 if vehicle.status == VehicleStatus.ON_TRIP else 0)
+            utilization = min(100.0, 100.0 * active_or_done / total_trips)
+
         rows.append(
             {
                 "vehicle_id": vehicle.id,
@@ -293,16 +403,18 @@ def fleet_report(db: Session, vehicle_type=None, status=None, region=None) -> li
                 "vehicle_type": vehicle.vehicle_type,
                 "region": vehicle.region,
                 "status": vehicle.status.value,
-                "total_trips": metrics["total_trips"],
-                "total_distance_km": metrics["total_distance_km"],
-                "total_liters": metrics["total_liters"],
-                "fuel_efficiency_kmpl": metrics["fuel_efficiency_kmpl"],
-                "operational_cost": costs["operational_total"],
-                "revenue": metrics["total_revenue"],
-                "cost_per_km": metrics["cost_per_km"],
-                "utilization_pct": metrics["utilization_pct"],
-                "roi": metrics["roi"],
-                "health_score": metrics["health_score"],
+                "total_trips": total_trips,
+                "total_distance_km": round(distance, 2),
+                "total_liters": round(liters, 2),
+                "fuel_efficiency_kmpl": round(distance / liters, 2)
+                if liters > 0 and distance
+                else None,
+                "operational_cost": round(op_cost, 2),
+                "revenue": round(revenue, 2),
+                "cost_per_km": round(op_cost / distance, 2) if distance > 0 else None,
+                "utilization_pct": round(utilization, 2),
+                "roi": round((revenue - op_cost) / acquisition, 4) if acquisition > 0 else None,
+                "health_score": health[vehicle.id],
             }
         )
     return rows

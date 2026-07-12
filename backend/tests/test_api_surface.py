@@ -104,6 +104,21 @@ def test_negative_cargo_is_rejected_by_the_schema(client, as_dispatcher, vehicle
     assert "cargo_weight_kg" in response.json()["error"]["fields"]
 
 
+def test_the_seed_and_the_api_share_one_city_catalog():
+    """Regression guard: the seed once had its own catalog, so it wrote trips through cities
+    (Vadodara, Rajkot) the API then rejected as UNKNOWN_CITY, and the two disagreed on Delhi's
+    coordinates. The seed must stay a view over core.cities, never a second copy."""
+    from transitops.core.cities import CITIES, find_city
+    from transitops.seed.cities import CITIES as SEED_CITIES
+
+    assert {c["name"] for c in SEED_CITIES} == {c.name for c in CITIES}
+
+    for seeded in SEED_CITIES:
+        city = find_city(seeded["name"])
+        assert city is not None, f"seed writes trips through {seeded['name']}, API rejects it"
+        assert (city.lat, city.lng) == (seeded["lat"], seeded["lng"])
+
+
 def test_an_unknown_city_is_a_clean_422(client, as_dispatcher, vehicle, driver):
     response = client.post(
         "/api/v1/trips",

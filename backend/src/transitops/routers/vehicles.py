@@ -11,6 +11,15 @@ from transitops.core.pagination import ListParams, apply_sort, list_params, pagi
 from transitops.core.rbac import get_current_user, require_vehicle_write
 from transitops.models.document import VehicleDocument
 from transitops.models.enums import TripStatus, VehicleStatus, VehicleType
+from transitops.models.enums import (
+    MaintenanceStatus,
+    TripStatus,
+    VehicleStatus,
+    VehicleType,
+)
+from transitops.models.expense import Expense
+from transitops.models.fuel_log import FuelLog
+from transitops.models.maintenance_log import MaintenanceLog
 from transitops.models.trip import Trip
 from transitops.models.user import User
 from transitops.models.vehicle import Vehicle
@@ -188,6 +197,23 @@ def update_vehicle(
                 "A vehicle is put on a trip by dispatching it, not by editing its status",
                 fields={"status": "Dispatch a trip instead"},
             )
+        # 00 §5: an open maintenance job pins the vehicle to the shop. Editing it back to
+        # available here would put it in the dispatch pool with the job still open — close the
+        # job instead (that transition is what returns it to available). Retiring is still fine.
+        if new_status == VehicleStatus.AVAILABLE:
+            open_job = db.scalar(
+                select(MaintenanceLog.id).where(
+                    MaintenanceLog.vehicle_id == vehicle.id,
+                    MaintenanceLog.status == MaintenanceStatus.OPEN,
+                )
+            )
+            if open_job:
+                raise AppError(
+                    "MAINTENANCE_OPEN",
+                    f"{vehicle.registration_number} has an open maintenance job; "
+                    "close it to return the vehicle to service",
+                    fields={"status": "Close the open maintenance job first"},
+                )
 
     # Shrinking capacity below what a live trip is already carrying would make that trip illegal.
     new_capacity = changes.get("max_load_capacity_kg")
@@ -237,10 +263,13 @@ def delete_vehicle(
             fields={"status": "Vehicle is currently on a trip"},
         )
 
-    trip_count = db.scalar(
-        select(func.count(Trip.id)).where(Trip.vehicle_id == vehicle.id)
+    # Every table that points at this vehicle, not just trips — a vehicle can carry fuel logs or
+    # expenses with no trip at all, and hard-deleting it would trip an FK violation.
+    has_history = any(
+        db.scalar(select(func.count(model.id)).where(model.vehicle_id == vehicle.id))
+        for model in (Trip, FuelLog, Expense, MaintenanceLog, VehicleDocument)
     )
-    if trip_count:
+    if has_history:
         vehicle.status = VehicleStatus.RETIRED
     else:
         db.delete(vehicle)

@@ -148,12 +148,13 @@ def update_driver(
     driver = _get(db, driver_id)
     changes = payload.model_dump(exclude_unset=True)
 
-    # A driver mid-trip can't be edited out from under it — no suspending someone who is on
-    # the road, and no hand-editing them "off" a trip (complete or cancel it instead).
-    if driver.status == DriverStatus.ON_TRIP and changes:
+    # A driver mid-trip can't have their status changed out from under the trip (contract §3) —
+    # but correcting a phone number or safety score while they're on the road is harmless, so
+    # only the status transition is blocked.
+    if driver.status == DriverStatus.ON_TRIP and "status" in changes:
         raise AppError(
             "DRIVER_ON_TRIP",
-            f"{driver.name} is on a trip; complete or cancel it before editing",
+            f"{driver.name} is on a trip; complete or cancel it before changing their status",
             fields={"status": "Driver is currently on a trip"},
         )
     if changes.get("status") == DriverStatus.ON_TRIP:
