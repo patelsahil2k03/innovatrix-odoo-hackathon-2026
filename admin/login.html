@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Sign In — TransitOps Super Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+<div class="login-page">
+  <div class="login-card">
+    <div class="login-mark">
+      <div class="sidebar-brand-mark">T</div>
+      <div>
+        <div class="sidebar-brand-name">TransitOps</div>
+        <div class="sidebar-brand-sub">Fleet Intelligence Platform</div>
+      </div>
+    </div>
+
+    <h1 class="text-display-md login-title">Super Admin Access</h1>
+    <p class="text-body-md login-sub">Sign in to manage fleet operations, dispatch, and analytics.</p>
+
+    <form class="stack" onsubmit="event.preventDefault(); location.href='index.html';">
+      <div class="field">
+        <label class="label" for="email">Email</label>
+        <input class="input" id="email" type="email" placeholder="you@transitops.io" value="gaurav.rathva@transitops.io" required />
+      </div>
+      <div class="field">
+        <label class="label" for="password">Password</label>
+        <input class="input" id="password" type="password" placeholder="••••••••••" value="superadmin" required />
+      </div>
+
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-top: 4px;">
+        <label class="text-body-sm u-body" style="display:flex; align-items:center; gap:8px;">
+          <input type="checkbox" checked /> Keep me signed in
+        </label>
+        <a href="#" class="text-body-sm u-primary">Forgot password?</a>
+      </div>
+
+      <button type="submit" class="btn btn-primary" style="width:100%; margin-top: var(--space-xs);">Sign In</button>
+    </form>
+
+    <p class="text-caption login-footnote">TransitOps © 2026 · Authorized personnel only</p>
+  </div>
+</div>
+
+</body>
+</html>

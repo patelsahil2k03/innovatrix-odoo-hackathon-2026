@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Trips &amp; Dispatch — TransitOps Super Admin</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="assets/design-system.css">
+</head>
+<body>
+
+<div class="app-shell">
+
+  <aside class="sidebar">
+    <div class="sidebar-brand">
+      <div class="sidebar-brand-mark">T</div>
+      <div>
+        <div class="sidebar-brand-name">TransitOps</div>
+        <div class="sidebar-brand-sub">Super Admin</div>
+      </div>
+    </div>
+    <nav class="sidebar-nav">
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Overview</div>
+        <a href="index.html" class="sidebar-link">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Dashboard
+        </a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Fleet</div>
+        <a href="vehicles.html" class="sidebar-link">
+          <svg class="icon" viewBox="0 0 24 24"><rect x="1" y="5" width="15" height="11"/><path d="M16 9h4l3 3v4h-7V9z"/><circle cx="5.5" cy="18" r="2"/><circle cx="18.5" cy="18" r="2"/></svg>
+          Vehicles
+        </a>
+        <a href="drivers.html" class="sidebar-link">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+          Drivers
+        </a>
+      </div>
+      <div class="sidebar-group">
+        <div class="sidebar-group-label">Operations</div>
+        <a href="trips.html" class="sidebar-link is-active">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="6" cy="19" r="2.2"/><circle cx="18" cy="5" r="2.2"/><path d="M8 19h7a4 4 0 0 0 4-4v-1a4 4 0 0 0-4-4H9a4 4 0 0 1-4-4v-1"/></svg>
+          Trips &amp; Dispatch
+        </a>
+        <a href="analytics.html" class="sidebar-link">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 3v18h18"/><rect x="7" y="12" width="3" height="6"/><rect x="12" y="8" width="3" height="10"/><rect x="17" y="5" width="3" height="13"/></svg>
+          Fleet Map &amp; Analytics
+        </a>
+      </div>
+    </nav>
+    <div class="sidebar-footer">
+      <div class="sidebar-user">
+        <div class="sidebar-user-avatar">GR</div>
+        <div>
+          <div class="sidebar-user-name">Gaurav Rathva</div>
+          <div class="sidebar-user-role">Super Admin</div>
+        </div>
+      </div>
+    </div>
+  </aside>
+
+  <div class="main">
+    <header class="topbar">
+      <div style="display:flex; align-items:center; gap: var(--space-xs);">
+        <button class="nav-toggle" data-nav-toggle aria-label="Toggle navigation">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M3 12h18M3 6h18M3 18h18"/></svg>
+        </button>
+        <div class="topbar-title-group">
+          <div class="text-caption-uppercase topbar-eyebrow">Operations</div>
+          <h1 class="text-display-md topbar-title">Trips &amp; Dispatch</h1>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <div class="search-field topbar-search">
+          <svg class="icon" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+          <input class="input" type="text" placeholder="Search vehicles, drivers, trips…" />
+        </div>
+        <button class="icon-btn" aria-label="Notifications">
+          <svg class="icon" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.7 21a2 2 0 0 1-3.4 0"/></svg>
+          <span class="dot"></span>
+        </button>
+      </div>
+    </header>
+
+    <main class="content">
+
+      <div class="kpi-grid" id="kpi-grid"></div>
+
+      <div class="grid-2">
+        <div>
+          <div class="table-toolbar">
+            <div class="table-filters">
+              <select class="select" id="filter-status">
+                <option value="">All Statuses</option>
+                <option value="pending">Pending</option>
+                <option value="dispatched">Dispatched</option>
+                <option value="in_transit">In Transit</option>
+                <option value="completed">Completed</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </div>
+            <button class="btn btn-primary" data-modal-open="modal-new-trip">
+              <svg class="icon" viewBox="0 0 24 24" style="width:16px;height:16px;"><path d="M12 5v14M5 12h14"/></svg>
+              New Trip
+            </button>
+          </div>
+
+          <div class="table-wrap">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Route</th>
+                  <th>Vehicle</th>
+                  <th>Driver</th>
+                  <th>Cargo</th>
+                  <th>Revenue</th>
+                  <th>Status</th>
+                  <th>Dispatched</th>
+                </tr>
+              </thead>
+              <tbody id="trips-body"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div>
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h2 class="text-title-md" style="margin:0;">AI Dispatch Suggestions</h2>
+                <p class="text-body-sm u-muted" style="margin:4px 0 0;">Ranked vehicle + driver matches for pending trips</p>
+              </div>
+            </div>
+            <div class="panel-body" id="ai-suggestions-panel"></div>
+          </div>
+        </div>
+      </div>
+
+    </main>
+  </div>
+</div>
+
+<!-- New Trip Modal -->
+<div class="modal-overlay" id="modal-new-trip">
+  <div class="modal">
+    <div class="modal-header">
+      <h2 class="text-title-md" style="margin:0;">Create Trip</h2>
+      <button class="btn-text" data-modal-close>✕</button>
+    </div>
+    <div class="modal-body">
+      <form class="form-grid">
+        <div class="field">
+          <label class="label">Source Location</label>
+          <input class="input" placeholder="Ahmedabad" />
+        </div>
+        <div class="field">
+          <label class="label">Destination Location</label>
+          <input class="input" placeholder="Mumbai" />
+        </div>
+        <div class="field">
+          <label class="label">Cargo Weight (t)</label>
+          <input class="input" type="number" placeholder="16.2" />
+        </div>
+        <div class="field">
+          <label class="label">Planned Distance (km)</label>
+          <input class="input" type="number" placeholder="524" />
+        </div>
+        <div class="field span-2">
+          <label class="label">Revenue (₹)</label>
+          <input class="input" type="number" placeholder="68000" />
+        </div>
+      </form>
+      <p class="text-body-sm u-muted-soft" style="margin-top: var(--space-xs);">Vehicle and driver assignment happens after creation via AI Dispatch Suggestions.</p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-outline-muted" data-modal-close>Cancel</button>
+      <button class="btn btn-primary" data-modal-close>Create Trip</button>
+    </div>
+  </div>
+</div>
+
+<script src="assets/mock-data.js"></script>
+<script src="assets/app.js"></script>
+<script>
+  let activeFilters = { status: "" };
+
+  function renderKPIs(){
+    const trips = DB.trips;
+    const cells = [
+      { label: "Pending Dispatch", value: trips.filter(t => t.status === "pending").length },
+      { label: "In Transit", value: trips.filter(t => t.status === "in_transit").length },
+      { label: "Completed", value: trips.filter(t => t.status === "completed").length },
+      { label: "Total Revenue", value: DB.fmtMoney(trips.filter(t=>t.status!=="cancelled").reduce((s,t)=>s+t.revenue,0)) },
+    ];
+    document.getElementById("kpi-grid").innerHTML = cells.map(c => `
+      <div class="kpi-cell">
+        <div class="kpi-label text-caption-uppercase"><span>${c.label}</span></div>
+        <div class="kpi-value text-number-display">${c.value}</div>
+      </div>
+    `).join("");
+  }
+
+  function renderTrips(){
+    let rows = DB.trips.filter(t => !activeFilters.status || t.status === activeFilters.status);
+    document.getElementById("trips-body").innerHTML = rows.map(t => {
+      const vehicle = DB.getVehicle(t.vehicle_id);
+      const driver = t.driver_id ? DB.getDriver(t.driver_id) : null;
+      return `
+        <tr>
+          <td class="cell-strong">${t.source_location} → ${t.destination_location}</td>
+          <td>${vehicle.registration_number}</td>
+          <td>${driver ? driver.name : '<span class="cell-muted">Unassigned</span>'}</td>
+          <td class="cell-muted">${t.cargo_weight} t</td>
+          <td>${DB.fmtMoney(t.revenue)}</td>
+          <td>${StatusBadge.trip(t.status)}</td>
+          <td class="cell-muted">${DB.fmtDateTime(t.dispatched_at)}</td>
+        </tr>
+      `;
+    }).join("") || `<tr><td colspan="7" class="cell-muted" style="text-align:center; padding: var(--space-md);">No trips match this filter.</td></tr>`;
+  }
+
+  function renderAISuggestions(){
+    const pendingTripIds = Object.keys(DB.aiDispatchSuggestions);
+    const panel = document.getElementById("ai-suggestions-panel");
+
+    if(pendingTripIds.length === 0){
+      panel.innerHTML = `<p class="u-muted text-body-sm">No pending trips need dispatch right now.</p>`;
+      return;
+    }
+
+    panel.innerHTML = pendingTripIds.map(tripId => {
+      const trip = DB.trips.find(t => t.id === tripId);
+      if(!trip || trip.status !== "pending") return "";
+      const suggestions = DB.aiDispatchSuggestions[tripId];
+
+      return `
+        <div class="mb-md">
+          <div class="text-body-md cell-strong mb-xs">${trip.source_location} → ${trip.destination_location} <span class="u-muted-soft text-body-sm">(${trip.cargo_weight}t · ${trip.planned_distance}km)</span></div>
+          ${suggestions.map((s, idx) => {
+            const vehicle = DB.getVehicle(s.vehicle_id);
+            const driver = DB.getDriver(s.driver_id);
+            return `
+              <div class="match-card">
+                <div class="match-score">
+                  <span class="num text-number-display">${s.score}</span>
+                  <span class="text-caption-uppercase u-muted-soft">Match</span>
+                </div>
+                <div class="match-body">
+                  <div class="text-body-sm cell-strong">${vehicle.registration_number} · ${driver.name}</div>
+                  <div class="text-caption match-reason">${s.reason}</div>
+                </div>
+                <button class="btn btn-sm btn-primary" onclick="assignTrip('${trip.id}', '${s.vehicle_id}', '${s.driver_id}')">Assign</button>
+              </div>
+            `;
+          }).join("")}
+        </div>
+      `;
+    }).join("");
+  }
+
+  function assignTrip(tripId, vehicleId, driverId){
+    const trip = DB.trips.find(t => t.id === tripId);
+    trip.vehicle_id = vehicleId;
+    trip.driver_id = driverId;
+    trip.status = "dispatched";
+    trip.dispatched_at = new Date().toISOString();
+    delete DB.aiDispatchSuggestions[tripId];
+    renderKPIs();
+    renderTrips();
+    renderAISuggestions();
+  }
+
+  document.getElementById("filter-status").addEventListener("change", (e) => { activeFilters.status = e.target.value; renderTrips(); });
+
+  renderKPIs();
+  renderTrips();
+  renderAISuggestions();
+</script>
+
+</body>
+</html>

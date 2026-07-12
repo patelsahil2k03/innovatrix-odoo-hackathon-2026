@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TransitOps Enterprise ERD</title>
+
+<script type="module">
+import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs';
+
+mermaid.initialize({
+  startOnLoad: true,
+  theme: "dark",
+  securityLevel: "loose"
+});
+</script>
+
+<style>
+body{
+  background:#0f172a;
+  color:white;
+  margin:0;
+  padding:20px;
+  font-family:Inter,sans-serif;
+}
+.mermaid{
+  overflow:auto;
+}
+</style>
+</head>
+<body>
+
+<h1>TransitOps Fleet Intelligence Platform</h1>
+
+<div class="mermaid">
+
+erDiagram
+
+ROLES ||--o{ USERS : has
+
+USERS ||--o{ TRIPS : creates
+USERS ||--o{ AUDIT_LOGS : performs
+USERS ||--o{ NOTIFICATIONS : receives
+
+VEHICLES ||--o{ TRIPS : assigned
+DRIVERS ||--o{ TRIPS : drives
+
+VEHICLES ||--o{ MAINTENANCE_LOGS : maintenance
+VEHICLES ||--o{ FUEL_LOGS : consumes
+VEHICLES ||--o{ EXPENSES : incurs
+
+VEHICLES ||--o{ VEHICLE_DOCUMENTS : owns
+DRIVERS ||--o{ DRIVER_DOCUMENTS : owns
+
+VEHICLES ||--|| VEHICLE_HEALTH : health
+VEHICLES ||--|| VEHICLE_ANALYTICS : analytics
+
+DRIVERS ||--|| DRIVER_PERFORMANCE : performance
+
+TRIPS ||--o{ AI_DISPATCH_SUGGESTIONS : suggestions
+
+VEHICLES ||--o{ ALERTS : generates
+DRIVERS ||--o{ ALERTS : generates
+
+ROLES {
+    uuid id PK
+    string name
+    string description
+}
+
+USERS {
+    uuid id PK
+    string email UK
+    string password_hash
+    uuid role_id FK
+    string full_name
+    datetime created_at
+}
+
+VEHICLES {
+    uuid id PK
+    string registration_number UK
+    string model
+    string vehicle_type
+    float max_load_capacity
+    float odometer
+    decimal acquisition_cost
+    string status
+    string region
+}
+
+VEHICLE_DOCUMENTS {
+    uuid id PK
+    uuid vehicle_id FK
+    string document_type
+    string document_number
+    date expiry_date
+    string file_url
+    string status
+}
+
+VEHICLE_HEALTH {
+    uuid id PK
+    uuid vehicle_id FK
+    int health_score
+    string maintenance_risk
+    date predicted_service_date
+    datetime calculated_at
+}
+
+VEHICLE_ANALYTICS {
+    uuid id PK
+    uuid vehicle_id FK
+    float fuel_efficiency
+    float utilization_percent
+    float cost_per_km
+    decimal profitability
+}
+
+DRIVERS {
+    uuid id PK
+    string name
+    string license_number UK
+    string license_category
+    date license_expiry_date
+    float safety_score
+    string status
+    string phone
+}
+
+DRIVER_DOCUMENTS {
+    uuid id PK
+    uuid driver_id FK
+    string document_type
+    date expiry_date
+    string file_url
+}
+
+DRIVER_PERFORMANCE {
+    uuid id PK
+    uuid driver_id FK
+    int total_trips
+    float avg_fuel_efficiency
+    int incident_count
+    float rating
+}
+
+TRIPS {
+    uuid id PK
+    uuid vehicle_id FK
+    uuid driver_id FK
+    uuid created_by FK
+    string source_location
+    string destination_location
+    float cargo_weight
+    float planned_distance
+    float actual_distance
+    decimal revenue
+    string status
+    datetime dispatched_at
+    datetime completed_at
+}
+
+MAINTENANCE_LOGS {
+    uuid id PK
+    uuid vehicle_id FK
+    string maintenance_type
+    decimal cost
+    string status
+    datetime opened_at
+    datetime closed_at
+}
+
+FUEL_LOGS {
+    uuid id PK
+    uuid vehicle_id FK
+    uuid trip_id FK
+    float liters
+    decimal cost
+    datetime logged_at
+}
+
+EXPENSES {
+    uuid id PK
+    uuid vehicle_id FK
+    string expense_type
+    decimal amount
+    string notes
+    datetime created_at
+}
+
+ALERTS {
+    uuid id PK
+    string title
+    string type
+    string severity
+    string status
+    datetime created_at
+}
+
+NOTIFICATIONS {
+    uuid id PK
+    uuid user_id FK
+    string title
+    string message
+    boolean is_read
+    datetime created_at
+}
+
+AUDIT_LOGS {
+    uuid id PK
+    uuid user_id FK
+    string action
+    string entity_name
+    uuid entity_id
+    datetime created_at
+}
+
+AI_DISPATCH_SUGGESTIONS {
+    uuid id PK
+    uuid trip_id FK
+    uuid vehicle_id FK
+    uuid driver_id FK
+    float score
+    string reason
+}
+
+</div>
+
+</body>
+</html>
