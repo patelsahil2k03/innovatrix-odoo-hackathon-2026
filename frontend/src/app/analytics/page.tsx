@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo } from "react";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Meter } from "@/components/ui/meter";
@@ -10,6 +10,8 @@ import { TrendChart } from "@/components/revenue-trend-chart";
 import { api } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { fmtMoney, ratingFromSafetyScore } from "@/lib/format";
+
+const AUTO_REFRESH_MS = 30_000;
 
 async function loadAnalytics() {
   const [kpis, fleet, trends, liveTrips, driversPage] = await Promise.all([
@@ -22,8 +24,27 @@ async function loadAnalytics() {
   return { kpis, fleet, trends, liveTrips, drivers: driversPage.items };
 }
 
+/** "YYYY-MM-DD" → "11 May", parsed from the string directly rather than via `new Date(...)`
+ * (which reads UTC midnight back in the browser's local timezone and can shift the displayed
+ * day by ±1 depending on the viewer's offset). */
+function formatWeekLabel(period: string): string {
+  const [year, month, day] = period.split("-").map(Number);
+  const date = new Date(year, month - 1, day);
+  return date.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
+}
+
 export default function AnalyticsPage() {
   const { data, loading, error, reload } = useFetch(loadAnalytics, []);
+
+  // The trip simulator keeps advancing trips and generating fuel logs in the background, so
+  // this page's data goes stale within seconds of loading — keep it live without a manual
+  // reload. The interval's own callback does the setState (via reload), not the effect body
+  // itself, so this doesn't trip react-hooks/set-state-in-effect.
+  useEffect(() => {
+    const interval = setInterval(reload, AUTO_REFRESH_MS);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const avgUtilization = useMemo(() => {
     if (!data?.fleet.length) return 0;
@@ -56,11 +77,7 @@ export default function AnalyticsPage() {
   );
 
   const fuelTrend = useMemo(
-    () =>
-      (data?.trends.weekly ?? []).map((w) => ({
-        label: new Date(w.period).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
-        value: w.fuel_cost,
-      })),
+    () => (data?.trends.weekly ?? []).map((w) => ({ label: formatWeekLabel(w.period), value: w.fuel_cost })),
     [data]
   );
 
@@ -128,12 +145,27 @@ export default function AnalyticsPage() {
               Weekly Fuel Cost Trend
             </h2>
             <p className="text-body-sm u-muted" style={{ margin: "4px 0 0" }}>
-              Fleet-wide fuel spend, last 8 weeks
+              Fleet-wide fuel spend, last 8 weeks · auto-refreshes every 30s
             </p>
           </div>
+          <button className="btn-text text-body-sm" onClick={reload}>
+            Refresh now
+          </button>
         </div>
         <div className="panel-body">
-          {fuelTrend.length === 0 ? <EmptyBlock label="No fuel logs in this window." /> : <TrendChart data={fuelTrend} />}
+          {fuelTrend.length === 0 ? (
+            <EmptyBlock label="No fuel logs in this window." />
+          ) : (
+            <>
+              <TrendChart data={fuelTrend} />
+              <p className="text-body-sm u-muted-soft" style={{ margin: "var(--space-xs) 0 0" }}>
+                CO₂ output: {data.trends.co2_total_kg.toLocaleString("en-IN")} kg
+                {data.trends.co2_saved_kg > 0
+                  ? ` · ${data.trends.co2_saved_kg.toLocaleString("en-IN")} kg saved vs. a 6 km/l baseline fleet`
+                  : ""}
+              </p>
+            </>
+          )}
         </div>
       </div>
 
