@@ -1,9 +1,29 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useState } from "react";
+import { api, ApiError } from "@/lib/api";
+import { useAuth } from "@/lib/auth-context";
 
 export default function LoginPage() {
-  const router = useRouter();
+  const { refresh } = useAuth();
+  const [email, setEmail] = useState("fleet@transitops.in");
+  const [password, setPassword] = useState("Demo@1234");
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+    setSubmitting(true);
+    try {
+      await api.auth.login(email, password);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : "Unable to sign in. Please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
 
   return (
     <div className="login-page">
@@ -21,13 +41,7 @@ export default function LoginPage() {
           Sign in to manage fleet operations, dispatch, and analytics.
         </p>
 
-        <form
-          className="stack"
-          onSubmit={(e) => {
-            e.preventDefault();
-            router.push("/");
-          }}
-        >
+        <form className="stack" onSubmit={handleSubmit}>
           <div className="field">
             <label className="label" htmlFor="email">
               Email
@@ -36,8 +50,9 @@ export default function LoginPage() {
               className="input"
               id="email"
               type="email"
-              placeholder="you@transitops.io"
-              defaultValue="gaurav.rathva@transitops.io"
+              placeholder="you@transitops.in"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
           </div>
@@ -50,26 +65,27 @@ export default function LoginPage() {
               id="password"
               type="password"
               placeholder="••••••••••"
-              defaultValue="superadmin"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
               required
             />
           </div>
 
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 4 }}>
-            <label className="text-body-sm u-body" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <input type="checkbox" defaultChecked /> Keep me signed in
-            </label>
-            <a href="#" className="text-body-sm u-primary">
-              Forgot password?
-            </a>
-          </div>
+          {error ? <p className="text-body-sm u-warning">{error}</p> : null}
 
-          <button type="submit" className="btn btn-primary" style={{ width: "100%", marginTop: "var(--space-xs)" }}>
-            Sign In
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={submitting}
+            style={{ width: "100%", marginTop: "var(--space-xs)" }}
+          >
+            {submitting ? "Signing in…" : "Sign In"}
           </button>
         </form>
 
-        <p className="text-caption login-footnote">TransitOps © 2026 · Authorized personnel only</p>
+        <p className="text-caption login-footnote">
+          Demo accounts: fleet@ · dispatch@ · safety@ · finance@transitops.in — password Demo@1234
+        </p>
       </div>
     </div>
   );

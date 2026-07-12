@@ -10,7 +10,8 @@ import {
   TripsIcon,
   AnalyticsIcon,
 } from "@/components/icons";
-import { currentUser } from "@/lib/mock-data";
+import { useAuth } from "@/lib/auth-context";
+import { initials } from "@/lib/format";
 
 interface NavItem {
   href: string;
@@ -41,8 +42,16 @@ const NAV_GROUPS: NavGroup[] = [
   },
 ];
 
+const ROLE_LABELS: Record<string, string> = {
+  fleet_manager: "Fleet Manager",
+  dispatcher: "Dispatcher",
+  safety_officer: "Safety Officer",
+  financial_analyst: "Financial Analyst",
+};
+
 export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: () => void }) {
   const pathname = usePathname();
+  const { user, logout } = useAuth();
 
   const isActive = (href: string) =>
     href === "/" ? pathname === "/" : pathname === href || pathname.startsWith(href + "/");
@@ -76,11 +85,14 @@ export function Sidebar({ isOpen, onNavigate }: { isOpen: boolean; onNavigate: (
       </nav>
       <div className="sidebar-footer">
         <div className="sidebar-user">
-          <div className="sidebar-user-avatar">GR</div>
+          <div className="sidebar-user-avatar">{user ? initials(user.full_name) : "—"}</div>
           <div>
-            <div className="sidebar-user-name">{currentUser.full_name}</div>
-            <div className="sidebar-user-role">{currentUser.role}</div>
+            <div className="sidebar-user-name">{user?.full_name ?? "—"}</div>
+            <div className="sidebar-user-role">{user ? ROLE_LABELS[user.role] ?? user.role : ""}</div>
           </div>
+          <button className="btn-text text-body-sm sidebar-logout" onClick={logout} aria-label="Sign out">
+            Sign out
+          </button>
         </div>
       </div>
     </aside>

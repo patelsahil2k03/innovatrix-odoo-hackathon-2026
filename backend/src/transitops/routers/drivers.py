@@ -10,10 +10,12 @@ from transitops.core.database import get_db
 from transitops.core.errors import AppError, Conflict, NotFound
 from transitops.core.pagination import ListParams, apply_sort, list_params, paginate
 from transitops.core.rbac import get_current_user, require_driver_write
+from transitops.models.document import DriverDocument
 from transitops.models.driver import Driver
 from transitops.models.enums import DriverStatus, LicenseCategory
 from transitops.models.user import User
 from transitops.schemas.common import Page
+from transitops.schemas.document import DriverDocumentOut
 from transitops.schemas.driver import (
     DriverCreate,
     DriverDetail,
@@ -121,6 +123,19 @@ def get_driver(
         **DriverOut.model_validate(driver).model_dump(),
         performance=DriverPerformance(**analytics.driver_performance(db, driver)),
     )
+
+
+@router.get("/{driver_id}/documents", response_model=list[DriverDocumentOut])
+def get_documents(
+    driver_id: uuid.UUID, db: Session = Depends(get_db), _: User = Depends(get_current_user)
+):
+    _get(db, driver_id)
+    docs = db.scalars(
+        select(DriverDocument)
+        .where(DriverDocument.driver_id == driver_id)
+        .order_by(DriverDocument.expiry_date)
+    ).all()
+    return [DriverDocumentOut.from_doc(d) for d in docs]
 
 
 @router.patch("/{driver_id}", response_model=DriverOut)

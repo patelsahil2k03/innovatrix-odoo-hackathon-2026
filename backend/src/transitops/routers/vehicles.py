@@ -10,6 +10,7 @@ from transitops.core.errors import AppError, Conflict, NotFound
 from transitops.core.pagination import ListParams, apply_sort, list_params, paginate
 from transitops.core.rbac import get_current_user, require_vehicle_write
 from transitops.models.document import VehicleDocument
+from transitops.models.enums import TripStatus, VehicleStatus, VehicleType
 from transitops.models.enums import (
     MaintenanceStatus,
     TripStatus,
@@ -23,6 +24,7 @@ from transitops.models.trip import Trip
 from transitops.models.user import User
 from transitops.models.vehicle import Vehicle
 from transitops.schemas.common import Page
+from transitops.schemas.document import VehicleDocumentOut
 from transitops.schemas.vehicle import (
     VehicleCosts,
     VehicleCreate,
@@ -152,6 +154,21 @@ def get_costs(
 ):
     _get(db, vehicle_id)
     return analytics.vehicle_costs(db, vehicle_id)
+
+
+@router.get("/{vehicle_id}/documents", response_model=list[VehicleDocumentOut])
+def get_documents(
+    vehicle_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    _get(db, vehicle_id)
+    docs = db.scalars(
+        select(VehicleDocument)
+        .where(VehicleDocument.vehicle_id == vehicle_id)
+        .order_by(VehicleDocument.expiry_date)
+    ).all()
+    return [VehicleDocumentOut.from_doc(d) for d in docs]
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleOut)

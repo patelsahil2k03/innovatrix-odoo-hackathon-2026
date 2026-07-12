@@ -1,24 +1,29 @@
-import { revenueTrend } from "@/lib/mock-data";
+export interface TrendChartPoint {
+  label: string;
+  value: number;
+}
 
-export function RevenueTrendChart() {
-  const data = revenueTrend;
+export function TrendChart({ data }: { data: TrendChartPoint[] }) {
   const w = 640;
   const h = 200;
   const padX = 24;
   const padBottom = 26;
   const padTop = 14;
 
-  const max = Math.max(...data.map((d) => d.revenue)) * 1.15;
-  const stepX = (w - padX * 2) / (data.length - 1);
+  const max = Math.max(...data.map((d) => d.value), 1) * 1.15;
+  const stepX = data.length > 1 ? (w - padX * 2) / (data.length - 1) : 0;
 
   const points = data.map((d, i) => {
     const x = padX + i * stepX;
-    const y = padTop + (1 - d.revenue / max) * (h - padBottom - padTop);
+    const y = padTop + (1 - d.value / max) * (h - padBottom - padTop);
     return [x, y] as const;
   });
 
   const linePath = points.map((p, i) => (i === 0 ? "M" : "L") + p[0].toFixed(1) + "," + p[1].toFixed(1)).join(" ");
-  const areaPath = `${linePath} L${points[points.length - 1][0].toFixed(1)},${h - padBottom} L${points[0][0].toFixed(1)},${h - padBottom} Z`;
+  const areaPath =
+    points.length > 0
+      ? `${linePath} L${points[points.length - 1][0].toFixed(1)},${h - padBottom} L${points[0][0].toFixed(1)},${h - padBottom} Z`
+      : "";
 
   const gridLines = [0, 1, 2, 3].map((i) => padTop + i * ((h - padBottom - padTop) / 3));
 
@@ -40,10 +45,9 @@ export function RevenueTrendChart() {
       ))}
       {data.map((d, i) => {
         const x = padX + i * stepX;
-        const day = new Date(d.date).toLocaleDateString("en-IN", { weekday: "short" });
         return (
-          <text key={d.date} className="axis-label" x={x} y={h - 6} textAnchor="middle">
-            {day}
+          <text key={d.label} className="axis-label" x={x} y={h - 6} textAnchor="middle">
+            {d.label}
           </text>
         );
       })}

@@ -1,63 +1,93 @@
+"use client";
+
+import { useMemo } from "react";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Meter } from "@/components/ui/meter";
+import { LoadingBlock, ErrorBlock, EmptyBlock } from "@/components/ui/async-state";
 import { FleetMap } from "@/components/fleet-map";
-import { RevenueTrendChart } from "@/components/revenue-trend-chart";
-import {
-  vehicles,
-  drivers,
-  driverPerformance,
-  vehicleAnalytics,
-  vehicleHealth,
-  trips,
-  revenueTrend,
-  fmtMoney,
-} from "@/lib/mock-data";
+import { TrendChart } from "@/components/revenue-trend-chart";
+import { api } from "@/lib/api";
+import { useFetch } from "@/lib/use-fetch";
+import { fmtMoney, ratingFromSafetyScore } from "@/lib/format";
+
+async function loadAnalytics() {
+  const [kpis, fleet, trends, liveTrips, driversPage] = await Promise.all([
+    api.analytics.kpis(),
+    api.analytics.fleet(),
+    api.analytics.trends(8),
+    api.trips.live(),
+    api.drivers.list({ page_size: 200 }),
+  ]);
+  return { kpis, fleet, trends, liveTrips, drivers: driversPage.items };
+}
 
 export default function AnalyticsPage() {
-  const revenue7d = revenueTrend.reduce((s, d) => s + d.revenue, 0);
-  const analyticsValues = Object.values(vehicleAnalytics);
-  const avgUtilization = Math.round(analyticsValues.reduce((s, a) => s + a.utilization_percent, 0) / analyticsValues.length);
-  const healthValues = Object.values(vehicleHealth);
-  const avgHealth = Math.round(healthValues.reduce((s, h) => s + h.health_score, 0) / healthValues.length);
-  const activeRoutes = trips.filter((t) => t.status === "in_transit" || t.status === "dispatched").length;
+  const { data, loading, error, reload } = useFetch(loadAnalytics, []);
 
-  const utilizationRows = vehicles
-    .map((v) => ({ v, analytics: vehicleAnalytics[v.id] }))
-    .sort((a, b) => b.analytics.utilization_percent - a.analytics.utilization_percent);
+  const avgUtilization = useMemo(() => {
+    if (!data?.fleet.length) return 0;
+    return Math.round(data.fleet.reduce((s, f) => s + f.utilization_pct, 0) / data.fleet.length);
+  }, [data]);
 
-  const scores = healthValues.map((h) => h.health_score);
-  const buckets = [
-    { label: "Critical (0–45)", cls: "b-critical", count: scores.filter((s) => s <= 45).length },
-    { label: "Watch (46–75)", cls: "b-medium", count: scores.filter((s) => s > 45 && s <= 75).length },
-    { label: "Healthy (76–100)", cls: "b-good", count: scores.filter((s) => s > 75).length },
-  ];
+  const avgHealth = useMemo(() => {
+    if (!data?.fleet.length) return 0;
+    return Math.round(data.fleet.reduce((s, f) => s + f.health_score, 0) / data.fleet.length);
+  }, [data]);
+
+  const utilizationRows = useMemo(
+    () => (data ? [...data.fleet].sort((a, b) => b.utilization_pct - a.utilization_pct) : []),
+    [data]
+  );
+
+  const buckets = useMemo(() => {
+    const scores = (data?.fleet ?? []).map((f) => f.health_score);
+    return [
+      { label: "Critical (0–45)", cls: "b-critical", count: scores.filter((s) => s <= 45).length },
+      { label: "Watch (46–75)", cls: "b-medium", count: scores.filter((s) => s > 45 && s <= 75).length },
+      { label: "Healthy (76–100)", cls: "b-good", count: scores.filter((s) => s > 75).length },
+    ];
+  }, [data]);
   const maxBucket = Math.max(...buckets.map((b) => b.count), 1);
 
-  const leaderboard = drivers
-    .map((d) => ({ d, perf: driverPerformance[d.id] }))
-    .sort((a, b) => b.perf.rating - a.perf.rating);
+  const leaderboard = useMemo(
+    () => (data ? [...data.drivers].sort((a, b) => b.safety_score - a.safety_score) : []),
+    [data]
+  );
+
+  const fuelTrend = useMemo(
+    () =>
+      (data?.trends.weekly ?? []).map((w) => ({
+        label: new Date(w.period).toLocaleDateString("en-IN", { day: "2-digit", month: "short" }),
+        value: w.fuel_cost,
+      })),
+    [data]
+  );
+
+  if (loading) {
+    return (
+      <AppShell eyebrow="Insights" title="Fleet Map & Analytics">
+        <LoadingBlock label="Loading analytics…" />
+      </AppShell>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <AppShell eyebrow="Insights" title="Fleet Map & Analytics">
+        <ErrorBlock message={error ?? "Failed to load analytics"} onRetry={reload} />
+      </AppShell>
+    );
+  }
 
   return (
-    <AppShell
-      eyebrow="Insights"
-      title="Fleet Map & Analytics"
-      actions={
-        <button className="icon-btn" aria-label="Notifications">
-          <svg className="icon" viewBox="0 0 24 24">
-            <path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9" />
-            <path d="M13.7 21a2 2 0 0 1-3.4 0" />
-          </svg>
-          <span className="dot" />
-        </button>
-      }
-    >
+    <AppShell eyebrow="Insights" title="Fleet Map & Analytics">
       <KpiGrid
         cells={[
-          { label: "Revenue (7d)", value: fmtMoney(revenue7d), primary: true },
+          { label: "Total Revenue", value: fmtMoney(data.kpis.total_revenue), primary: true },
           { label: "Avg Utilization", value: `${avgUtilization}%` },
           { label: "Avg Fleet Health", value: avgHealth },
-          { label: "Active Routes", value: activeRoutes, primary: true },
+          { label: "Active Routes", value: data.liveTrips.length, primary: true },
         ]}
       />
 
@@ -68,48 +98,42 @@ export default function AnalyticsPage() {
               Live Fleet Map
             </h2>
             <p className="text-body-sm u-muted" style={{ margin: "4px 0 0" }}>
-              Vehicle locations by region, with active trip routes
+              Dispatched trips in transit, interpolated along their route
             </p>
           </div>
         </div>
-        <FleetMap />
-        <div className="map-legend">
-          <div className="legend-item">
-            <span className="legend-dot" style={{ background: "var(--color-success)" }} />
-            <span className="text-caption u-muted-soft">Active</span>
-          </div>
-          <div className="legend-item">
-            <span className="legend-dot" style={{ background: "var(--color-warning)" }} />
-            <span className="text-caption u-muted-soft">Maintenance</span>
-          </div>
-          <div className="legend-item">
-            <span className="legend-dot" style={{ background: "var(--color-muted-soft)" }} />
-            <span className="text-caption u-muted-soft">Idle</span>
-          </div>
-          <div className="legend-item">
-            <span className="legend-dot" style={{ background: "var(--color-muted)" }} />
-            <span className="text-caption u-muted-soft">Retired</span>
-          </div>
-          <div className="legend-item">
-            <span style={{ width: 16, borderTop: "2px dashed var(--color-primary)", display: "inline-block" }} />
-            <span className="text-caption u-muted-soft">Active trip route</span>
-          </div>
-        </div>
+        {data.liveTrips.length === 0 ? (
+          <EmptyBlock label="No trips are currently dispatched." />
+        ) : (
+          <>
+            <FleetMap trips={data.liveTrips} />
+            <div className="map-legend">
+              <div className="legend-item">
+                <span className="legend-dot" style={{ background: "var(--color-primary)" }} />
+                <span className="text-caption u-muted-soft">Vehicle on trip</span>
+              </div>
+              <div className="legend-item">
+                <span style={{ width: 16, borderTop: "2px dashed var(--color-primary)", display: "inline-block" }} />
+                <span className="text-caption u-muted-soft">Active trip route</span>
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="panel mb-md">
         <div className="panel-header">
           <div>
             <h2 className="text-title-md" style={{ margin: 0 }}>
-              Revenue Trend
+              Weekly Fuel Cost Trend
             </h2>
             <p className="text-body-sm u-muted" style={{ margin: "4px 0 0" }}>
-              Fleet-wide revenue, last 7 days
+              Fleet-wide fuel spend, last 8 weeks
             </p>
           </div>
         </div>
         <div className="panel-body">
-          <RevenueTrendChart />
+          {fuelTrend.length === 0 ? <EmptyBlock label="No fuel logs in this window." /> : <TrendChart data={fuelTrend} />}
         </div>
       </div>
 
@@ -121,19 +145,23 @@ export default function AnalyticsPage() {
             </h2>
           </div>
           <div className="panel-body">
-            {utilizationRows.map(({ v, analytics }) => (
-              <div className="health-row" key={v.id}>
-                <div className="health-meta">
-                  <div className="text-body-sm cell-strong">{v.registration_number}</div>
+            {utilizationRows.length === 0 ? (
+              <EmptyBlock label="No vehicles yet." />
+            ) : (
+              utilizationRows.map((f) => (
+                <div className="health-row" key={f.vehicle_id}>
+                  <div className="health-meta">
+                    <div className="text-body-sm cell-strong">{f.registration_number}</div>
+                  </div>
+                  <Meter
+                    value={f.utilization_pct}
+                    className="w-[140px]"
+                    fillClassName={f.utilization_pct >= 60 ? "is-success" : f.utilization_pct >= 30 ? "" : "is-warning"}
+                  />
+                  <div className="health-score text-title-sm">{f.utilization_pct}%</div>
                 </div>
-                <Meter
-                  value={analytics.utilization_percent}
-                  className="w-[140px]"
-                  fillClassName={analytics.utilization_percent >= 60 ? "is-success" : analytics.utilization_percent >= 30 ? "" : "is-warning"}
-                />
-                <div className="health-score text-title-sm">{analytics.utilization_percent}%</div>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </div>
         <div className="panel">
@@ -159,18 +187,22 @@ export default function AnalyticsPage() {
       <div className="panel">
         <div className="panel-header">
           <h2 className="text-title-md" style={{ margin: 0 }}>
-            Driver Rating Leaderboard
+            Driver Safety Score Leaderboard
           </h2>
         </div>
         <div className="panel-body">
-          {leaderboard.map(({ d, perf }, i) => (
-            <div className="leaderboard-row" key={d.id}>
-              <div className="leaderboard-rank text-body-sm">#{i + 1}</div>
-              <div className="leaderboard-name text-body-sm cell-strong">{d.name}</div>
-              <Meter value={(perf.rating / 5) * 100} fillClassName={perf.rating >= 4 ? "is-success" : perf.rating >= 3 ? "" : "is-warning"} />
-              <div className="leaderboard-value text-body-sm">{perf.rating.toFixed(1)} ★</div>
-            </div>
-          ))}
+          {leaderboard.length === 0 ? (
+            <EmptyBlock label="No drivers yet." />
+          ) : (
+            leaderboard.map((d, i) => (
+              <div className="leaderboard-row" key={d.id}>
+                <div className="leaderboard-rank text-body-sm">#{i + 1}</div>
+                <div className="leaderboard-name text-body-sm cell-strong">{d.name}</div>
+                <Meter value={d.safety_score} fillClassName={d.safety_score >= 80 ? "is-success" : d.safety_score >= 60 ? "" : "is-warning"} />
+                <div className="leaderboard-value text-body-sm">{ratingFromSafetyScore(d.safety_score).toFixed(1)} ★</div>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </AppShell>
