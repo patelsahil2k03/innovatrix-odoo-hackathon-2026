@@ -49,6 +49,6 @@ coverage/
 *.log
 logs/
 
-# Internal team docs (local working notes, not part of the submission)
-docs/FABLE_MASTER_PROMPT.md
+# Internal team docs (local working notes, rough docs & AI reference material — not part of the submission)
+docs/
 ai_guidelines/
