@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
@@ -10,11 +10,18 @@ import { FleetMap } from "@/components/fleet-map";
 import { TrendChart } from "@/components/revenue-trend-chart";
 import { api, type FleetRow, type DriverOut } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
+import { useEventStream } from "@/lib/use-event-stream";
 import { fmtMoney, ratingFromSafetyScore, initials } from "@/lib/format";
 
 const AUTO_REFRESH_MS = 30_000;
 const SPOTLIGHT_COUNT = 5;
 const SPOTLIGHT_SPLIT_THRESHOLD = SPOTLIGHT_COUNT * 2;
+
+interface ProgressOverride {
+  progress_percent: number;
+  current_lat: number;
+  current_lng: number;
+}
 
 async function loadAnalytics() {
   const [kpis, fleet, trends, liveTrips, driversPage] = await Promise.all([
@@ -39,15 +46,44 @@ function formatWeekLabel(period: string): string {
 export default function AnalyticsPage() {
   const { data, loading, error, reload } = useFetch(loadAnalytics, []);
 
-  // The trip simulator keeps advancing trips and generating fuel logs in the background, so
-  // this page's data goes stale within seconds of loading — keep it live without a manual
-  // reload. The interval's own callback does the setState (via reload), not the effect body
-  // itself, so this doesn't trip react-hooks/set-state-in-effect.
+  // Two complementary live-update mechanisms, deliberately kept together:
+  // 1. SSE `trip.progress` nudges individual trip markers forward instantly, and `kpi.refresh`
+  //    (fired on every meaningful write) triggers a full refetch — the primary, low-latency path.
+  // 2. A 30s poll as a backstop: if the SSE connection silently drops, the simulator keeps
+  //    mutating data in the background regardless, so this page must not go stale forever.
+  const [progressOverrides, setProgressOverrides] = useState<Record<string, ProgressOverride>>({});
+
+  useEventStream({
+    "trip.progress": (payload: { trip_id: string; progress_percent: number }) => {
+      const base = data?.liveTrips.find((t) => t.id === payload.trip_id);
+      if (!base) return;
+      const frac = payload.progress_percent / 100;
+      setProgressOverrides((prev) => ({
+        ...prev,
+        [payload.trip_id]: {
+          progress_percent: payload.progress_percent,
+          current_lat: base.source_lat + (base.dest_lat - base.source_lat) * frac,
+          current_lng: base.source_lng + (base.dest_lng - base.source_lng) * frac,
+        },
+      }));
+    },
+    "kpi.refresh": () => reload(),
+  });
+
   useEffect(() => {
     const interval = setInterval(reload, AUTO_REFRESH_MS);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  const liveTrips = useMemo(
+    () =>
+      (data?.liveTrips ?? []).map((t) => {
+        const override = progressOverrides[t.id];
+        return override ? { ...t, ...override } : t;
+      }),
+    [data, progressOverrides]
+  );
 
   const avgUtilization = useMemo(() => {
     if (!data?.fleet.length) return 0;
@@ -143,13 +179,29 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <AppShell eyebrow="Insights" title="Fleet Map & Analytics">
+    <AppShell
+      eyebrow="Insights"
+      title="Fleet Map & Analytics"
+      actions={
+        <>
+          <a className="btn btn-outline-muted btn-sm" href={api.analytics.exportCsvUrl("fleet")}>
+            Export Fleet CSV
+          </a>
+          <a className="btn btn-outline-muted btn-sm" href={api.analytics.exportCsvUrl("trips")}>
+            Export Trips CSV
+          </a>
+          <a className="btn btn-outline-muted btn-sm" href={api.analytics.exportCsvUrl("expenses")}>
+            Export Expenses CSV
+          </a>
+        </>
+      }
+    >
       <KpiGrid
         cells={[
           { label: "Total Revenue", value: fmtMoney(data.kpis.total_revenue), primary: true },
           { label: "Avg Utilization", value: `${avgUtilization}%` },
           { label: "Avg Fleet Health", value: avgHealth },
-          { label: "Active Routes", value: data.liveTrips.length, primary: true },
+          { label: "Active Routes", value: liveTrips.length, primary: true },
         ]}
       />
 
@@ -164,11 +216,11 @@ export default function AnalyticsPage() {
             </p>
           </div>
         </div>
-        {data.liveTrips.length === 0 ? (
+        {liveTrips.length === 0 ? (
           <EmptyBlock label="No trips are currently dispatched." />
         ) : (
           <>
-            <FleetMap trips={data.liveTrips} />
+            <FleetMap trips={liveTrips} />
             <div className="map-legend">
               <div className="legend-item">
                 <span className="legend-dot" style={{ background: "var(--color-primary)" }} />

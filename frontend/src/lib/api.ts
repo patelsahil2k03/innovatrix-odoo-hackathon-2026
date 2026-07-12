@@ -171,6 +171,16 @@ export interface VehicleCreate {
   region?: string;
 }
 
+export interface VehicleUpdate {
+  name_model?: string;
+  vehicle_type?: VehicleType;
+  max_load_capacity_kg?: number;
+  odometer_km?: number;
+  acquisition_cost?: number;
+  region?: string;
+  status?: VehicleStatus;
+}
+
 /* ---- Drivers ------------------------------------------------------------ */
 
 export interface DriverOut {
@@ -216,6 +226,15 @@ export interface DriverCreate {
   license_category: LicenseCategory;
   license_expiry_date: string;
   safety_score?: number;
+}
+
+export interface DriverUpdate {
+  name?: string;
+  phone?: string;
+  license_category?: LicenseCategory;
+  license_expiry_date?: string;
+  safety_score?: number;
+  status?: DriverStatus;
 }
 
 /* ---- Trips ---------------------------------------------------------------- */
@@ -330,6 +349,14 @@ export interface FuelLogOut {
   created_by: string;
 }
 
+export interface FuelLogCreate {
+  vehicle_id: string;
+  trip_id?: string;
+  liters: number;
+  cost: number;
+  odometer_at_fill?: number;
+}
+
 export interface ExpenseOut {
   id: string;
   vehicle_id: string;
@@ -339,6 +366,14 @@ export interface ExpenseOut {
   notes: string | null;
   created_at: string;
   created_by: string;
+}
+
+export interface ExpenseCreate {
+  vehicle_id: string;
+  trip_id?: string;
+  expense_type: ExpenseType;
+  amount: number;
+  notes?: string;
 }
 
 /* ---- Analytics -------------------------------------------------------------- */
@@ -443,6 +478,8 @@ export const api = {
       apiFetch<VehicleOut[]>(`/vehicles/dispatchable${qs({ cargo_weight_kg: cargoWeightKg })}`),
     create: (payload: VehicleCreate) =>
       apiFetch<VehicleOut>("/vehicles", { method: "POST", body: JSON.stringify(payload) }),
+    update: (id: string, payload: VehicleUpdate) =>
+      apiFetch<VehicleOut>(`/vehicles/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   },
 
   drivers: {
@@ -454,6 +491,8 @@ export const api = {
     assignable: () => apiFetch<DriverOut[]>("/drivers/assignable"),
     create: (payload: DriverCreate) =>
       apiFetch<DriverOut>("/drivers", { method: "POST", body: JSON.stringify(payload) }),
+    update: (id: string, payload: DriverUpdate) =>
+      apiFetch<DriverOut>(`/drivers/${id}`, { method: "PATCH", body: JSON.stringify(payload) }),
   },
 
   trips: {
@@ -491,11 +530,15 @@ export const api = {
   fuelLogs: {
     list: (params?: ListParams & { vehicle_id?: string; trip_id?: string }) =>
       apiFetch<Page<FuelLogOut>>(`/fuel-logs${qs(params)}`),
+    create: (payload: FuelLogCreate) =>
+      apiFetch<FuelLogOut>("/fuel-logs", { method: "POST", body: JSON.stringify(payload) }),
   },
 
   expenses: {
     list: (params?: ListParams & { vehicle_id?: string; trip_id?: string; expense_type?: string }) =>
       apiFetch<Page<ExpenseOut>>(`/expenses${qs(params)}`),
+    create: (payload: ExpenseCreate) =>
+      apiFetch<ExpenseOut>("/expenses", { method: "POST", body: JSON.stringify(payload) }),
   },
 
   analytics: {

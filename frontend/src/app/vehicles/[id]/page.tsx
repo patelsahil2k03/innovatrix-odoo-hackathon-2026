@@ -1,9 +1,10 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AppShell } from "@/components/shell/app-shell";
 import { Tabs } from "@/components/ui/tabs";
+import { Modal } from "@/components/ui/modal";
 import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import {
   VehicleStatusBadge,
@@ -14,20 +15,25 @@ import {
 } from "@/components/ui/status-badge";
 import { Pagination } from "@/components/ui/pagination";
 import { SortableTh } from "@/components/ui/sortable-th";
-import { SearchIcon } from "@/components/icons";
+import { PlusIcon, SearchIcon } from "@/components/icons";
 import {
   api,
+  ApiError,
   type DriverOut,
   type VehicleDocumentOut,
   type MaintenanceOut,
   type FuelLogOut,
   type ExpenseOut,
   type TripOut,
+  type VehicleType,
+  type VehicleStatus,
+  type MaintenanceType,
+  type ExpenseType,
 } from "@/lib/api";
 import { useFetch } from "@/lib/use-fetch";
 import { usePagedRows } from "@/lib/use-paged-rows";
 import { useAuth } from "@/lib/auth-context";
-import { canWriteVehicles } from "@/lib/roles";
+import { canWriteVehicles, canWriteMaintenance, canWriteCosts } from "@/lib/roles";
 import {
   fmtMoney,
   fmtDate,
@@ -65,7 +71,50 @@ export default function VehicleDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
   const canManage = canWriteVehicles(user?.role);
+  const canManageMaintenance = canWriteMaintenance(user?.role);
+  const canManageCosts = canWriteCosts(user?.role);
   const { data, loading, error, reload } = useFetch(() => loadVehicle(id), [id]);
+
+  const [isEditOpen, setIsEditOpen] = useState(false);
+  const [editForm, setEditForm] = useState({
+    name_model: "",
+    vehicle_type: "truck" as VehicleType,
+    max_load_capacity_kg: "",
+    odometer_km: "",
+    acquisition_cost: "",
+    region: "",
+    status: "available" as VehicleStatus,
+  });
+  const [editError, setEditError] = useState<string | null>(null);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+
+  const [isMaintenanceOpen, setIsMaintenanceOpen] = useState(false);
+  const [maintenanceForm, setMaintenanceForm] = useState({
+    maintenance_type: "service" as MaintenanceType,
+    description: "",
+    cost: "",
+  });
+  const [maintenanceError, setMaintenanceError] = useState<string | null>(null);
+  const [maintenanceSubmitting, setMaintenanceSubmitting] = useState(false);
+
+  const [closingId, setClosingId] = useState<string | null>(null);
+  const [closeCost, setCloseCost] = useState("");
+  const [closeError, setCloseError] = useState<string | null>(null);
+  const [closeSubmitting, setCloseSubmitting] = useState(false);
+
+  const [isFuelOpen, setIsFuelOpen] = useState(false);
+  const [fuelForm, setFuelForm] = useState({ liters: "", cost: "", odometer_at_fill: "" });
+  const [fuelError, setFuelError] = useState<string | null>(null);
+  const [fuelSubmitting, setFuelSubmitting] = useState(false);
+
+  const [isExpenseOpen, setIsExpenseOpen] = useState(false);
+  const [expenseForm, setExpenseForm] = useState({
+    expense_type: "toll" as ExpenseType,
+    amount: "",
+    notes: "",
+  });
+  const [expenseError, setExpenseError] = useState<string | null>(null);
+  const [expenseSubmitting, setExpenseSubmitting] = useState(false);
 
   const driverById = useMemo(
     () => new Map((data?.drivers ?? []).map((d: DriverOut) => [d.id, d])),
@@ -137,16 +186,147 @@ export default function VehicleDetailPage() {
   const { vehicle } = data;
   const { costs, metrics } = vehicle;
 
+  function openEdit() {
+    setEditForm({
+      name_model: vehicle.name_model,
+      vehicle_type: vehicle.vehicle_type,
+      max_load_capacity_kg: String(vehicle.max_load_capacity_kg),
+      odometer_km: String(vehicle.odometer_km),
+      acquisition_cost: String(vehicle.acquisition_cost),
+      region: vehicle.region ?? "",
+      status: vehicle.status,
+    });
+    setEditError(null);
+    setIsEditOpen(true);
+  }
+
+  async function handleEditVehicle(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setEditError(null);
+    setEditSubmitting(true);
+    try {
+      await api.vehicles.update(vehicle.id, {
+        name_model: editForm.name_model,
+        vehicle_type: editForm.vehicle_type,
+        max_load_capacity_kg: Number(editForm.max_load_capacity_kg),
+        odometer_km: Number(editForm.odometer_km),
+        acquisition_cost: Number(editForm.acquisition_cost),
+        region: editForm.region || undefined,
+        status: editForm.status,
+      });
+      setIsEditOpen(false);
+      reload();
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : "Failed to update vehicle");
+    } finally {
+      setEditSubmitting(false);
+    }
+  }
+
+  async function handleLogMaintenance(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setMaintenanceError(null);
+    setMaintenanceSubmitting(true);
+    try {
+      await api.maintenance.open({
+        vehicle_id: vehicle.id,
+        maintenance_type: maintenanceForm.maintenance_type,
+        description: maintenanceForm.description || undefined,
+        cost: maintenanceForm.cost ? Number(maintenanceForm.cost) : undefined,
+      });
+      setIsMaintenanceOpen(false);
+      setMaintenanceForm({ maintenance_type: "service", description: "", cost: "" });
+      reload();
+    } catch (err) {
+      setMaintenanceError(err instanceof ApiError ? err.message : "Failed to open maintenance job");
+    } finally {
+      setMaintenanceSubmitting(false);
+    }
+  }
+
+  async function handleCloseMaintenance(e: React.SyntheticEvent) {
+    e.preventDefault();
+    if (!closingId) return;
+    setCloseError(null);
+    setCloseSubmitting(true);
+    try {
+      await api.maintenance.close(closingId, Number(closeCost));
+      setClosingId(null);
+      setCloseCost("");
+      reload();
+    } catch (err) {
+      setCloseError(err instanceof ApiError ? err.message : "Failed to close maintenance job");
+    } finally {
+      setCloseSubmitting(false);
+    }
+  }
+
+  async function handleLogFuel(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setFuelError(null);
+    setFuelSubmitting(true);
+    try {
+      await api.fuelLogs.create({
+        vehicle_id: vehicle.id,
+        liters: Number(fuelForm.liters),
+        cost: Number(fuelForm.cost),
+        odometer_at_fill: fuelForm.odometer_at_fill ? Number(fuelForm.odometer_at_fill) : undefined,
+      });
+      setIsFuelOpen(false);
+      setFuelForm({ liters: "", cost: "", odometer_at_fill: "" });
+      reload();
+    } catch (err) {
+      setFuelError(err instanceof ApiError ? err.message : "Failed to log fuel");
+    } finally {
+      setFuelSubmitting(false);
+    }
+  }
+
+  async function handleAddExpense(e: React.SyntheticEvent) {
+    e.preventDefault();
+    setExpenseError(null);
+    setExpenseSubmitting(true);
+    try {
+      await api.expenses.create({
+        vehicle_id: vehicle.id,
+        expense_type: expenseForm.expense_type,
+        amount: Number(expenseForm.amount),
+        notes: expenseForm.notes || undefined,
+      });
+      setIsExpenseOpen(false);
+      setExpenseForm({ expense_type: "toll", amount: "", notes: "" });
+      reload();
+    } catch (err) {
+      setExpenseError(err instanceof ApiError ? err.message : "Failed to add expense");
+    } finally {
+      setExpenseSubmitting(false);
+    }
+  }
+
   return (
     <AppShell
       eyebrow="Vehicles"
       title={vehicle.registration_number}
       backHref="/vehicles"
       actions={
-        canManage ? (
+        canManage || canManageMaintenance ? (
           <>
-            <button className="btn btn-outline-muted btn-sm">Edit</button>
-            <button className="btn btn-primary btn-sm">Log Maintenance</button>
+            {canManage && (
+              <button className="btn btn-outline-muted btn-sm" onClick={openEdit}>
+                Edit
+              </button>
+            )}
+            {canManageMaintenance && (
+              <button
+                className="btn btn-primary btn-sm"
+                onClick={() => {
+                  setMaintenanceError(null);
+                  setIsMaintenanceOpen(true);
+                }}
+              >
+                Log Maintenance
+              </button>
+            )}
           </>
         ) : undefined
       }
@@ -319,11 +499,12 @@ export default function VehicleDetailPage() {
                       <SortableTh label="Status" field="status" sort={maintenancePaged.sort} onSort={maintenancePaged.toggleSort} />
                       <SortableTh label="Opened" field="opened_at" sort={maintenancePaged.sort} onSort={maintenancePaged.toggleSort} />
                       <th>Closed</th>
+                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {maintenancePaged.pageRows.length === 0 ? (
-                      <TableRowState colSpan={5}>No maintenance history.</TableRowState>
+                      <TableRowState colSpan={6}>No maintenance history.</TableRowState>
                     ) : (
                       maintenancePaged.pageRows.map((m) => (
                         <tr key={m.id}>
@@ -334,6 +515,20 @@ export default function VehicleDetailPage() {
                           </td>
                           <td className="cell-muted">{fmtDateTime(m.opened_at)}</td>
                           <td className="cell-muted">{fmtDateTime(m.closed_at)}</td>
+                          <td>
+                            {canManageMaintenance && m.status === "open" && (
+                              <button
+                                className="btn btn-sm btn-outline-muted"
+                                onClick={() => {
+                                  setCloseError(null);
+                                  setCloseCost(String(m.cost || ""));
+                                  setClosingId(m.id);
+                                }}
+                              >
+                                Close
+                              </button>
+                            )}
+                          </td>
                         </tr>
                       ))
                     )}
@@ -354,39 +549,55 @@ export default function VehicleDetailPage() {
             id: "fuel",
             label: "Fuel Logs",
             content: (
-              <div className="table-wrap">
-                <div className="table-scroll">
-                <table className="data-table">
-                  <thead>
-                    <tr>
-                      <SortableTh label="Logged At" field="logged_at" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
-                      <SortableTh label="Liters" field="liters" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
-                      <SortableTh label="Cost" field="cost" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
-                      <th>₹/Liter</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {fuelPaged.pageRows.length === 0 ? (
-                      <TableRowState colSpan={4}>No fuel logs recorded.</TableRowState>
-                    ) : (
-                      fuelPaged.pageRows.map((f) => (
-                        <tr key={f.id}>
-                          <td className="cell-strong">{fmtDateTime(f.logged_at)}</td>
-                          <td>{f.liters} L</td>
-                          <td>{fmtMoney(f.cost)}</td>
-                          <td className="cell-muted">₹{(f.cost / f.liters).toFixed(2)}</td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+              <div>
+                {canManageCosts && (
+                  <div className="table-toolbar table-toolbar-tab" style={{ justifyContent: "flex-end" }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setFuelError(null);
+                        setIsFuelOpen(true);
+                      }}
+                    >
+                      <PlusIcon style={{ width: 14, height: 14 }} />
+                      Log Fuel
+                    </button>
+                  </div>
+                )}
+                <div className="table-wrap">
+                  <div className="table-scroll">
+                  <table className="data-table">
+                    <thead>
+                      <tr>
+                        <SortableTh label="Logged At" field="logged_at" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
+                        <SortableTh label="Liters" field="liters" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
+                        <SortableTh label="Cost" field="cost" sort={fuelPaged.sort} onSort={fuelPaged.toggleSort} />
+                        <th>₹/Liter</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {fuelPaged.pageRows.length === 0 ? (
+                        <TableRowState colSpan={4}>No fuel logs recorded.</TableRowState>
+                      ) : (
+                        fuelPaged.pageRows.map((f) => (
+                          <tr key={f.id}>
+                            <td className="cell-strong">{fmtDateTime(f.logged_at)}</td>
+                            <td>{f.liters} L</td>
+                            <td>{fmtMoney(f.cost)}</td>
+                            <td className="cell-muted">₹{(f.cost / f.liters).toFixed(2)}</td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                  </div>
+                  <Pagination
+                    page={fuelPaged.page}
+                    pageSize={fuelPaged.pageSize}
+                    total={fuelPaged.total}
+                    onPageChange={fuelPaged.setPage}
+                  />
                 </div>
-                <Pagination
-                  page={fuelPaged.page}
-                  pageSize={fuelPaged.pageSize}
-                  total={fuelPaged.total}
-                  onPageChange={fuelPaged.setPage}
-                />
               </div>
             ),
           },
@@ -406,6 +617,18 @@ export default function VehicleDetailPage() {
                       onChange={(e) => expensesPaged.updateQuery(e.target.value)}
                     />
                   </div>
+                  {canManageCosts && (
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => {
+                        setExpenseError(null);
+                        setIsExpenseOpen(true);
+                      }}
+                    >
+                      <PlusIcon style={{ width: 14, height: 14 }} />
+                      Add Expense
+                    </button>
+                  )}
                 </div>
               <div className="table-wrap">
                 <div className="table-scroll">
@@ -509,6 +732,312 @@ export default function VehicleDetailPage() {
           },
         ]}
       />
+
+      <Modal
+        isOpen={isEditOpen}
+        onClose={() => setIsEditOpen(false)}
+        title="Edit Vehicle"
+        footer={
+          <>
+            <button className="btn btn-outline-muted" onClick={() => setIsEditOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleEditVehicle} disabled={editSubmitting}>
+              {editSubmitting ? "Saving…" : "Save Changes"}
+            </button>
+          </>
+        }
+      >
+        <form className="form-grid" onSubmit={handleEditVehicle}>
+          <div className="field">
+            <label className="label">Model</label>
+            <input
+              className="input"
+              value={editForm.name_model}
+              onChange={(e) => setEditForm({ ...editForm, name_model: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="label">Vehicle Type</label>
+            <select
+              className="select"
+              value={editForm.vehicle_type}
+              onChange={(e) => setEditForm({ ...editForm, vehicle_type: e.target.value as VehicleType })}
+            >
+              {Object.entries(VEHICLE_TYPE_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field">
+            <label className="label">Max Load Capacity (kg)</label>
+            <input
+              className="input"
+              type="number"
+              value={editForm.max_load_capacity_kg}
+              onChange={(e) => setEditForm({ ...editForm, max_load_capacity_kg: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="label">Odometer (km)</label>
+            <input
+              className="input"
+              type="number"
+              value={editForm.odometer_km}
+              onChange={(e) => setEditForm({ ...editForm, odometer_km: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="label">Acquisition Cost (₹)</label>
+            <input
+              className="input"
+              type="number"
+              value={editForm.acquisition_cost}
+              onChange={(e) => setEditForm({ ...editForm, acquisition_cost: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="label">Region</label>
+            <input
+              className="input"
+              value={editForm.region}
+              onChange={(e) => setEditForm({ ...editForm, region: e.target.value })}
+            />
+          </div>
+          <div className="field span-2">
+            <label className="label">Status</label>
+            <select
+              className="select"
+              value={editForm.status}
+              onChange={(e) => setEditForm({ ...editForm, status: e.target.value as VehicleStatus })}
+            >
+              <option value="available">Available</option>
+              <option value="on_trip">On Trip</option>
+              <option value="in_shop">In Shop</option>
+              <option value="retired">Retired</option>
+            </select>
+          </div>
+          {editError ? (
+            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
+              {editError}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={isMaintenanceOpen}
+        onClose={() => setIsMaintenanceOpen(false)}
+        title="Log Maintenance"
+        footer={
+          <>
+            <button className="btn btn-outline-muted" onClick={() => setIsMaintenanceOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleLogMaintenance} disabled={maintenanceSubmitting}>
+              {maintenanceSubmitting ? "Saving…" : "Open Job"}
+            </button>
+          </>
+        }
+      >
+        <form className="form-grid" onSubmit={handleLogMaintenance}>
+          <div className="field span-2">
+            <label className="label">Maintenance Type</label>
+            <select
+              className="select"
+              value={maintenanceForm.maintenance_type}
+              onChange={(e) =>
+                setMaintenanceForm({ ...maintenanceForm, maintenance_type: e.target.value as MaintenanceType })
+              }
+            >
+              {Object.entries(MAINTENANCE_TYPE_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field span-2">
+            <label className="label">Description (optional)</label>
+            <input
+              className="input"
+              value={maintenanceForm.description}
+              onChange={(e) => setMaintenanceForm({ ...maintenanceForm, description: e.target.value })}
+            />
+          </div>
+          <div className="field span-2">
+            <label className="label">Estimated Cost (₹, optional)</label>
+            <input
+              className="input"
+              type="number"
+              value={maintenanceForm.cost}
+              onChange={(e) => setMaintenanceForm({ ...maintenanceForm, cost: e.target.value })}
+            />
+          </div>
+          <p className="text-caption u-muted-soft span-2" style={{ gridColumn: "span 2" }}>
+            Opening this job will move the vehicle to <strong>In Shop</strong> and hide it from
+            trip dispatch until it&apos;s closed.
+          </p>
+          {maintenanceError ? (
+            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
+              {maintenanceError}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={!!closingId}
+        onClose={() => setClosingId(null)}
+        title="Close Maintenance Job"
+        footer={
+          <>
+            <button className="btn btn-outline-muted" onClick={() => setClosingId(null)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleCloseMaintenance} disabled={closeSubmitting}>
+              {closeSubmitting ? "Saving…" : "Close Job"}
+            </button>
+          </>
+        }
+      >
+        <form className="form-grid" onSubmit={handleCloseMaintenance}>
+          <div className="field span-2">
+            <label className="label">Final Cost (₹)</label>
+            <input
+              className="input"
+              type="number"
+              value={closeCost}
+              onChange={(e) => setCloseCost(e.target.value)}
+              required
+            />
+          </div>
+          <p className="text-caption u-muted-soft span-2" style={{ gridColumn: "span 2" }}>
+            The vehicle returns to <strong>Available</strong> unless it&apos;s retired or has another
+            open job.
+          </p>
+          {closeError ? (
+            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
+              {closeError}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={isFuelOpen}
+        onClose={() => setIsFuelOpen(false)}
+        title="Log Fuel"
+        footer={
+          <>
+            <button className="btn btn-outline-muted" onClick={() => setIsFuelOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleLogFuel} disabled={fuelSubmitting}>
+              {fuelSubmitting ? "Saving…" : "Log Fuel"}
+            </button>
+          </>
+        }
+      >
+        <form className="form-grid" onSubmit={handleLogFuel}>
+          <div className="field">
+            <label className="label">Liters</label>
+            <input
+              className="input"
+              type="number"
+              value={fuelForm.liters}
+              onChange={(e) => setFuelForm({ ...fuelForm, liters: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field">
+            <label className="label">Cost (₹)</label>
+            <input
+              className="input"
+              type="number"
+              value={fuelForm.cost}
+              onChange={(e) => setFuelForm({ ...fuelForm, cost: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field span-2">
+            <label className="label">Odometer at Fill (km, optional)</label>
+            <input
+              className="input"
+              type="number"
+              value={fuelForm.odometer_at_fill}
+              onChange={(e) => setFuelForm({ ...fuelForm, odometer_at_fill: e.target.value })}
+            />
+          </div>
+          {fuelError ? (
+            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
+              {fuelError}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={isExpenseOpen}
+        onClose={() => setIsExpenseOpen(false)}
+        title="Add Expense"
+        footer={
+          <>
+            <button className="btn btn-outline-muted" onClick={() => setIsExpenseOpen(false)}>
+              Cancel
+            </button>
+            <button className="btn btn-primary" onClick={handleAddExpense} disabled={expenseSubmitting}>
+              {expenseSubmitting ? "Saving…" : "Add Expense"}
+            </button>
+          </>
+        }
+      >
+        <form className="form-grid" onSubmit={handleAddExpense}>
+          <div className="field span-2">
+            <label className="label">Expense Type</label>
+            <select
+              className="select"
+              value={expenseForm.expense_type}
+              onChange={(e) => setExpenseForm({ ...expenseForm, expense_type: e.target.value as ExpenseType })}
+            >
+              {Object.entries(EXPENSE_TYPE_LABELS).map(([v, label]) => (
+                <option key={v} value={v}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="field span-2">
+            <label className="label">Amount (₹)</label>
+            <input
+              className="input"
+              type="number"
+              value={expenseForm.amount}
+              onChange={(e) => setExpenseForm({ ...expenseForm, amount: e.target.value })}
+              required
+            />
+          </div>
+          <div className="field span-2">
+            <label className="label">Notes (optional)</label>
+            <input
+              className="input"
+              value={expenseForm.notes}
+              onChange={(e) => setExpenseForm({ ...expenseForm, notes: e.target.value })}
+            />
+          </div>
+          {expenseError ? (
+            <p className="text-body-sm u-warning" style={{ gridColumn: "span 2" }}>
+              {expenseError}
+            </p>
+          ) : null}
+        </form>
+      </Modal>
     </AppShell>
   );
 }

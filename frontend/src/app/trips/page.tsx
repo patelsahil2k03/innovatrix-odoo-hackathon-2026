@@ -1,10 +1,12 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { AppShell } from "@/components/shell/app-shell";
 import { KpiGrid } from "@/components/ui/kpi-grid";
 import { Modal } from "@/components/ui/modal";
 import { Field, FormAlert, RequiredLegend } from "@/components/ui/field";
+import { Meter } from "@/components/ui/meter";
 import { TripStatusBadge } from "@/components/ui/status-badge";
 import { LoadingBlock, ErrorBlock, LoadingInline, TableRowState } from "@/components/ui/async-state";
 import { Pagination } from "@/components/ui/pagination";
@@ -94,12 +96,19 @@ const BLANK_TRIP: NewTripForm = {
 export default function TripsPage() {
   const { user } = useAuth();
   const canDispatch = canWriteTrips(user?.role);
+  const searchParams = useSearchParams();
   const [status, setStatus] = useState("");
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState("-created_at");
   const [page, setPage] = useState(1);
-  const [isNewTripOpen, setIsNewTripOpen] = useState(false);
-  const [form, setForm] = useState<NewTripForm>(BLANK_TRIP);
+  // Seeded once from the URL (a driver's "Assign to Trip" button links here with
+  // ?openTrip=1&driverId=...) via lazy initializers — genuinely initial state derived from the
+  // URL, not a subscription to something that changes later, so no effect is needed.
+  const [isNewTripOpen, setIsNewTripOpen] = useState(() => searchParams.get("openTrip") === "1");
+  const [form, setForm] = useState<NewTripForm>(() => ({
+    ...BLANK_TRIP,
+    driver_id: searchParams.get("driverId") ?? "",
+  }));
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -118,12 +127,26 @@ export default function TripsPage() {
     setPage(1);
   }
 
+  // Re-run whenever the typed cargo weight changes so the vehicle picker only ever offers
+  // vehicles that can actually take the load — a hardcoded dispatchable(0) here would silently
+  // defeat the capacity filter (docs/04_API_CONTRACT.md's `/vehicles/dispatchable?cargo_weight_kg=`).
+  const cargoKg = Number(form.cargo_weight_kg) || 0;
   const { data: candidates, loading: candidatesLoading } = useFetch(
-    () => (isNewTripOpen ? Promise.all([api.vehicles.dispatchable(0), api.drivers.assignable()]) : Promise.resolve([[], []] as [VehicleOut[], DriverOut[]])),
-    [isNewTripOpen]
+    () =>
+      isNewTripOpen
+        ? Promise.all([api.vehicles.dispatchable(cargoKg), api.drivers.assignable()])
+        : Promise.resolve([[], []] as [VehicleOut[], DriverOut[]]),
+    [isNewTripOpen, cargoKg]
   );
   const candidateVehicles = candidates?.[0] ?? [];
   const candidateDrivers = candidates?.[1] ?? [];
+
+  // If the picked vehicle drops out of the refreshed (capacity-filtered) list — e.g. the user
+  // raised the cargo weight past what it can carry — treat the selection as cleared. Derived at
+  // render time rather than synced back via an effect+setState.
+  const selectedVehicle = candidateVehicles.find((v) => v.id === form.vehicle_id);
+  const effectiveVehicleId = selectedVehicle ? form.vehicle_id : "";
+  const selectedCapacityKg = selectedVehicle?.max_load_capacity_kg;
 
   const vehicleById = useMemo(() => new Map((data?.vehicles ?? []).map((v) => [v.id, v])), [data]);
   const driverById = useMemo(() => new Map((data?.drivers ?? []).map((d) => [d.id, d])), [data]);
@@ -136,10 +159,6 @@ export default function TripsPage() {
   // Completed trips only — matches kpis.total_revenue on Dashboard/Analytics. Draft/dispatched
   // trips carry a planned revenue figure that isn't earned yet, so it must not be counted here.
   const totalRevenue = allTrips.filter((t) => t.status === "completed").reduce((s, t) => s + t.revenue, 0);
-
-  // Capacity of the vehicle currently picked — the client half of the cargo ≤ capacity rule.
-  const selectedCapacityKg = candidateVehicles.find((v) => v.id === form.vehicle_id)
-    ?.max_load_capacity_kg;
 
   function update(patch: Partial<NewTripForm>) {
     setForm((prev) => ({ ...prev, ...patch }));
@@ -164,7 +183,7 @@ export default function TripsPage() {
     e.preventDefault();
     setFormError(null);
 
-    const found = validateTrip(form, selectedCapacityKg);
+    const found = validateTrip({ ...form, vehicle_id: effectiveVehicleId }, selectedCapacityKg);
     if (hasErrors(found)) {
       setErrors(found);
       setFormError("Some details need fixing.");
@@ -175,7 +194,7 @@ export default function TripsPage() {
 
     try {
       await api.trips.create({
-        vehicle_id: form.vehicle_id,
+        vehicle_id: effectiveVehicleId,
         driver_id: form.driver_id,
         source_city: form.source_city.trim(),
         dest_city: form.dest_city.trim(),
@@ -483,11 +502,17 @@ export default function TripsPage() {
           <Field id="vehicle_id" label="Vehicle" required error={errors.vehicle_id}>
             <select
               className="select"
-              value={form.vehicle_id}
+              value={effectiveVehicleId}
               onChange={(e) => update({ vehicle_id: e.target.value })}
               disabled={candidatesLoading}
             >
-              <option value="">{candidatesLoading ? "Loading…" : "Select a vehicle"}</option>
+              <option value="">
+                {candidatesLoading
+                  ? "Loading…"
+                  : cargoKg > 0 && candidateVehicles.length === 0
+                    ? "No vehicle fits this cargo weight"
+                    : "Select a vehicle"}
+              </option>
               {candidateVehicles.map((v) => (
                 <option key={v.id} value={v.id}>
                   {v.registration_number} · {v.name_model} · {fmtNumber(v.max_load_capacity_kg)} kg
@@ -518,9 +543,18 @@ export default function TripsPage() {
             required
             error={errors.cargo_weight_kg}
             hint={
-              selectedCapacityKg
-                ? `Must be ≤ ${fmtNumber(selectedCapacityKg)} kg for the selected vehicle.`
-                : "Pick a vehicle to see its capacity limit."
+              selectedCapacityKg ? (
+                <>
+                  <Meter
+                    value={Math.min(100, (cargoKg / selectedCapacityKg) * 100)}
+                    className="mb-xxs"
+                    fillClassName={cargoKg > selectedCapacityKg ? "is-warning" : ""}
+                  />
+                  {fmtNumber(cargoKg)} / {fmtNumber(selectedCapacityKg)} kg for the selected vehicle
+                </>
+              ) : (
+                "Pick a vehicle to see its capacity limit."
+              )
             }
           >
             <input

@@ -10,7 +10,6 @@ from transitops.core.errors import AppError, Conflict, NotFound
 from transitops.core.pagination import ListParams, apply_sort, list_params, paginate
 from transitops.core.rbac import get_current_user, require_vehicle_write
 from transitops.models.document import VehicleDocument
-from transitops.models.enums import TripStatus, VehicleStatus, VehicleType
 from transitops.models.enums import (
     MaintenanceStatus,
     TripStatus,
