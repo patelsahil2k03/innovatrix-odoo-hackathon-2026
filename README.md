@@ -163,6 +163,14 @@ npm run kill:ports      # free ports 3000/8000/8001 if a previous run didn't exi
 ### Running pieces manually
 
 ```bash
+# Environment — create once; dev.sh does this step for you too, but only if .env
+# doesn't already exist. If you already have a .env from before and something looks
+# stale (e.g. a JWT-key-too-short warning), re-copy it: cp .env.example .env (this
+# overwrites any local edits, so check `diff .env .env.example` first if unsure).
+cp .env.example .env
+cp .env backend/.env
+grep '^NEXT_PUBLIC_' .env > frontend/.env.local
+
 # Database — Docker path
 docker compose -f infra/docker-compose.yml up -d db
 # No Docker? Skip this and set DATABASE_URL=sqlite:///./transitops.db in .env instead —
@@ -185,6 +193,18 @@ cd backend && uv run pytest
 ```
 
 Per-app details: [frontend/README.md](frontend/README.md) · [backend/README.md](backend/README.md)
+
+### Troubleshooting
+
+- **"Port 3000 is in use... using 3001 instead"** — a previous run didn't shut down cleanly.
+  `./scripts/dev.sh` now clears ports 3000/8000 defensively before starting (and on exit), so
+  this shouldn't recur; if it does, run `npm run kill:ports` (or `fuser -k 3000/tcp 8000/tcp`)
+  and try again.
+- **Login requests fail / CORS errors in the browser console** — usually the port issue above:
+  the backend only allows `http://localhost:3000` and `:3001` as CORS origins. If Next.js ever
+  lands on a different port, add it to `cors_origins` in `backend/src/transitops/core/settings.py`.
+- **`InsecureKeyLengthWarning` on the JWT key** — your `.env` predates a fix to the default
+  secret; re-copy it: `cp .env.example .env && cp .env backend/.env`.
 
 ## Contribution Workflow
 

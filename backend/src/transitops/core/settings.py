@@ -22,7 +22,10 @@ class Settings(BaseSettings):
     simulator_enabled: bool = True
     simulator_interval_seconds: float = 3.0
 
-    cors_origins: list[str] = ["http://localhost:3000"]
+    # :3001 included defensively: if port 3000 is already taken when `next dev` starts, Next.js
+    # silently falls back to 3001 — without this, every request would fail CORS preflight with
+    # a confusing 400 that looks unrelated to the actual port collision.
+    cors_origins: list[str] = ["http://localhost:3000", "http://localhost:3001"]
 
     # Demo password for every seeded account — printed by the seed script, shown on the login screen.
     # seed/seed.py imports this as the single source of truth rather than hardcoding its own value.
