@@ -264,6 +264,7 @@ img{ max-width: 100%; display: block; }
 
 .sidebar-user-name{ font-size: 13px; font-weight: 600; }
 .sidebar-user-role{ font-size: 11px; color: var(--color-primary); text-transform: uppercase; letter-spacing: .6px; font-weight: 600; }
+.sidebar-logout{ margin-left: auto; flex-shrink: 0; }
 
 /* ---- Main / Topbar ------------------------------------------------------ */
 
@@ -789,6 +790,7 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
 .vehicle-pin.maintenance{ background: var(--color-warning); }
 .vehicle-pin.idle{ background: var(--color-muted-soft); }
 .vehicle-pin.retired{ background: var(--color-muted); }
+.vehicle-pin.on_trip{ background: var(--color-primary); }
 
 .leaflet-tooltip.vehicle-tooltip{
   background: var(--color-canvas);
@@ -901,4 +903,41 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
 @media (max-width: 560px){
   .kpi-grid{ grid-template-columns: 1fr; }
   .spec-strip{ grid-template-columns: 1fr 1fr; }
+}
+
+/* ==========================================================================
+   Async states — loading / empty / error (API-integrated pages)
+   ========================================================================== */
+
+@keyframes spin{ to{ transform: rotate(360deg); } }
+
+.spinner{
+  width: 20px; height: 20px;
+  border: 2px solid var(--color-hairline);
+  border-top-color: var(--color-primary);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  flex-shrink: 0;
+}
+
+.state-block{
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  gap: var(--space-xs);
+  padding: var(--space-lg) var(--space-sm);
+  text-align: center;
+  color: var(--color-muted-soft);
+}
+
+.state-block .spinner{ width: 28px; height: 28px; border-width: 3px; }
+
+.state-block-inline{
+  display: flex; align-items: center; justify-content: center;
+  gap: var(--space-xxs);
+  padding: var(--space-sm);
+  color: var(--color-muted-soft);
+}
+
+.app-boot{
+  min-height: 100vh; display: flex; align-items: center; justify-content: center;
+  background: var(--color-canvas);
 }

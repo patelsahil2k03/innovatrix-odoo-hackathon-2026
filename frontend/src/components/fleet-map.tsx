@@ -1,16 +1,9 @@
 "use client";
 
 import { useEffect, useRef } from "react";
-import {
-  vehicles,
-  vehicleHealth,
-  trips,
-  cityCoords,
-  getVehicleLatLng,
-  getDriver,
-} from "@/lib/mock-data";
+import type { TripLive } from "@/lib/api";
 
-export function FleetMap() {
+export function FleetMap({ trips }: { trips: TripLive[] }) {
   const containerRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -21,7 +14,7 @@ export function FleetMap() {
       const L = (await import("leaflet")).default;
       if (cancelled || !containerRef.current) return;
 
-      map = L.map(containerRef.current, { scrollWheelZoom: false }).setView([21.5, 73.4], 6);
+      map = L.map(containerRef.current, { scrollWheelZoom: false }).setView([21.5, 78.4], 5);
 
       L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png", {
         attribution:
@@ -30,26 +23,40 @@ export function FleetMap() {
         maxZoom: 19,
       }).addTo(map);
 
-      Object.entries(cityCoords).forEach(([city, coords]) => {
-        L.marker(coords, {
+      const cityLabelled = new Set<string>();
+      const labelCity = (name: string, lat: number, lng: number) => {
+        if (cityLabelled.has(name)) return;
+        cityLabelled.add(name);
+        L.marker([lat, lng], {
           icon: L.divIcon({ className: "", html: `<span></span>`, iconSize: [0, 0] }),
           interactive: false,
         })
-          .bindTooltip(city, { permanent: true, direction: "bottom", offset: [0, 6], className: "city-label" })
+          .bindTooltip(name, { permanent: true, direction: "bottom", offset: [0, 6], className: "city-label" })
           .addTo(map!)
           .openTooltip();
-      });
+      };
 
-      vehicles.forEach((v) => {
-        const latlng = getVehicleLatLng(v);
-        if (!latlng) return;
-        const icon = L.divIcon({ className: "", html: `<div class="vehicle-pin ${v.status}"></div>`, iconSize: [18, 18], iconAnchor: [9, 9] });
-        const marker = L.marker(latlng, { icon }).addTo(map!);
-        const health = vehicleHealth[v.id];
-        const activeTrip = trips.find((t) => t.vehicle_id === v.id && (t.status === "in_transit" || t.status === "dispatched"));
-        const driver = activeTrip && activeTrip.driver_id ? getDriver(activeTrip.driver_id) : null;
+      trips.forEach((t) => {
+        labelCity(t.source_city, t.source_lat, t.source_lng);
+        labelCity(t.dest_city, t.dest_lat, t.dest_lng);
 
-        marker.bindTooltip(v.registration_number, {
+        L.polyline(
+          [
+            [t.source_lat, t.source_lng],
+            [t.dest_lat, t.dest_lng],
+          ],
+          { color: "#024ad8", weight: 3, opacity: 0.9, dashArray: "8 6" }
+        ).addTo(map!);
+
+        const icon = L.divIcon({
+          className: "",
+          html: `<div class="vehicle-pin on_trip"></div>`,
+          iconSize: [18, 18],
+          iconAnchor: [9, 9],
+        });
+        const marker = L.marker([t.current_lat, t.current_lng], { icon }).addTo(map!);
+
+        marker.bindTooltip(t.vehicle_registration, {
           permanent: true,
           direction: "top",
           offset: [0, -10],
@@ -57,31 +64,29 @@ export function FleetMap() {
         });
 
         marker.bindPopup(`
-          <div class="map-popup-title">${v.registration_number}</div>
-          <div class="map-popup-row"><span>Model</span><span>${v.model}</span></div>
-          <div class="map-popup-row"><span>Region</span><span>${v.region}</span></div>
-          <div class="map-popup-row"><span>Status</span><span>${v.status}</span></div>
-          <div class="map-popup-row"><span>Health</span><span>${health.health_score}</span></div>
-          <div class="map-popup-row"><span>Driver</span><span>${driver ? driver.name : "Unassigned"}</span></div>
-          <a href="/vehicles/${v.id}" class="text-body-sm u-primary">View vehicle →</a>
+          <div class="map-popup-title">${t.vehicle_registration}</div>
+          <div class="map-popup-row"><span>Route</span><span>${t.source_city} → ${t.dest_city}</span></div>
+          <div class="map-popup-row"><span>Progress</span><span>${t.progress_percent.toFixed(0)}%</span></div>
+          <div class="map-popup-row"><span>Driver</span><span>${t.driver_name}</span></div>
         `);
       });
 
-      trips
-        .filter((t) => t.status === "in_transit" || t.status === "dispatched")
-        .forEach((t) => {
-          const from = cityCoords[t.source_location];
-          const to = cityCoords[t.destination_location];
-          if (!from || !to) return;
-          L.polyline([from, to], { color: "#024ad8", weight: 3, opacity: 0.9, dashArray: "8 6" }).addTo(map!);
-        });
+      if (trips.length > 0) {
+        const bounds = L.latLngBounds(
+          trips.flatMap((t) => [
+            [t.source_lat, t.source_lng] as [number, number],
+            [t.dest_lat, t.dest_lng] as [number, number],
+          ])
+        );
+        map.fitBounds(bounds, { padding: [40, 40] });
+      }
     })();
 
     return () => {
       cancelled = true;
       map?.remove();
     };
-  }, []);
+  }, [trips]);
 
   return <div id="fleet-map" ref={containerRef} />;
 }

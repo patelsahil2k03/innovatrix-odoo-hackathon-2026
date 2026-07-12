@@ -1,6 +1,10 @@
-import { notFound } from "next/navigation";
+"use client";
+
+import { useMemo } from "react";
+import { useParams } from "next/navigation";
 import { AppShell } from "@/components/shell/app-shell";
 import { Tabs } from "@/components/ui/tabs";
+import { LoadingBlock, ErrorBlock, TableRowState } from "@/components/ui/async-state";
 import {
   VehicleStatusBadge,
   RiskBadge,
@@ -8,33 +12,68 @@ import {
   MaintenanceStatusBadge,
   TripStatusBadge,
 } from "@/components/ui/status-badge";
+import { api, type DriverOut } from "@/lib/api";
+import { useFetch } from "@/lib/use-fetch";
 import {
-  vehicles,
-  vehicleHealth,
-  vehicleAnalytics,
-  vehicleDocuments,
-  maintenanceLogs,
-  fuelLogs,
-  expenses,
-  trips,
-  getDriver,
   fmtMoney,
   fmtDate,
   fmtDateTime,
-} from "@/lib/mock-data";
+  fmtNumber,
+  riskFromHealth,
+  DOCUMENT_TYPE_LABELS,
+  MAINTENANCE_TYPE_LABELS,
+  EXPENSE_TYPE_LABELS,
+  VEHICLE_TYPE_LABELS,
+} from "@/lib/format";
 
-export default async function VehicleDetailPage({ params }: { params: Promise<{ id: string }> }) {
-  const { id } = await params;
-  const vehicle = vehicles.find((v) => v.id === id);
-  if (!vehicle) notFound();
+async function loadVehicle(id: string) {
+  const [vehicle, documents, maintenance, fuel, expenses, trips, driversPage] = await Promise.all([
+    api.vehicles.get(id),
+    api.vehicles.documents(id).catch(() => []),
+    api.maintenance.list({ vehicle_id: id, page_size: 100 }).catch(() => ({ items: [], total: 0, page: 1, page_size: 100 })),
+    api.fuelLogs.list({ vehicle_id: id, page_size: 100 }).catch(() => ({ items: [], total: 0, page: 1, page_size: 100 })),
+    api.expenses.list({ vehicle_id: id, page_size: 100 }).catch(() => ({ items: [], total: 0, page: 1, page_size: 100 })),
+    api.trips.list({ vehicle_id: id, page_size: 100, sort: "-created_at" }).catch(() => ({ items: [], total: 0, page: 1, page_size: 100 })),
+    api.drivers.list({ page_size: 200 }).catch(() => ({ items: [], total: 0, page: 1, page_size: 200 })),
+  ]);
+  return {
+    vehicle,
+    documents,
+    maintenance: maintenance.items,
+    fuel: fuel.items,
+    expenses: expenses.items,
+    trips: trips.items,
+    drivers: driversPage.items,
+  };
+}
 
-  const health = vehicleHealth[vehicle.id];
-  const analytics = vehicleAnalytics[vehicle.id];
-  const documents = vehicleDocuments[vehicle.id] ?? [];
-  const maintenance = maintenanceLogs[vehicle.id] ?? [];
-  const fuel = fuelLogs[vehicle.id] ?? [];
-  const vehicleExpenses = expenses[vehicle.id] ?? [];
-  const vehicleTrips = trips.filter((t) => t.vehicle_id === vehicle.id);
+export default function VehicleDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const { data, loading, error, reload } = useFetch(() => loadVehicle(id), [id]);
+
+  const driverById = useMemo(
+    () => new Map((data?.drivers ?? []).map((d: DriverOut) => [d.id, d])),
+    [data]
+  );
+
+  if (loading) {
+    return (
+      <AppShell eyebrow="Vehicles" title="Loading…" backHref="/vehicles">
+        <LoadingBlock label="Loading vehicle…" />
+      </AppShell>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <AppShell eyebrow="Vehicles" title="Vehicle" backHref="/vehicles">
+        <ErrorBlock message={error ?? "Vehicle not found"} onRetry={reload} />
+      </AppShell>
+    );
+  }
+
+  const { vehicle, documents, maintenance, fuel, expenses, trips } = data;
+  const { costs, metrics } = vehicle;
 
   return (
     <AppShell
@@ -51,34 +90,40 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
       <div style={{ display: "flex", alignItems: "center", gap: "var(--space-xs)", marginBottom: "var(--space-sm)" }}>
         <VehicleStatusBadge status={vehicle.status} />
         <span className="text-body-md u-body">
-          {vehicle.model} · {vehicle.vehicle_type} · {vehicle.region}
+          {vehicle.name_model} · {VEHICLE_TYPE_LABELS[vehicle.vehicle_type]} · {vehicle.region ?? "—"}
         </span>
       </div>
 
       <div className="spec-strip">
         <div className="spec-cell">
-          <span className={`spec-value text-number-display ${health.health_score >= 70 ? "is-success" : health.health_score < 45 ? "is-warning" : ""}`}>
-            {health.health_score}
+          <span
+            className={`spec-value text-number-display ${metrics.health_score >= 70 ? "is-success" : metrics.health_score < 45 ? "is-warning" : ""}`}
+          >
+            {metrics.health_score}
           </span>
           <span className="spec-label text-caption-uppercase">Health Score</span>
         </div>
         <div className="spec-cell">
-          <span className="spec-value text-number-display">{analytics.fuel_efficiency}</span>
+          <span className="spec-value text-number-display">{metrics.fuel_efficiency_kmpl ?? "—"}</span>
           <span className="spec-label text-caption-uppercase">km / liter</span>
         </div>
         <div className="spec-cell">
-          <span className="spec-value text-number-display">{analytics.utilization_percent}%</span>
+          <span className="spec-value text-number-display">{metrics.utilization_pct}%</span>
           <span className="spec-label text-caption-uppercase">Utilization</span>
         </div>
         <div className="spec-cell">
-          <span className="spec-value text-number-display">₹{analytics.cost_per_km}</span>
+          <span className="spec-value text-number-display">
+            {metrics.cost_per_km != null ? `₹${metrics.cost_per_km}` : "—"}
+          </span>
           <span className="spec-label text-caption-uppercase">Cost / km</span>
         </div>
         <div className="spec-cell">
-          <span className={`spec-value text-number-display ${analytics.profitability < 0 ? "is-warning" : "is-primary"}`}>
-            {fmtMoney(analytics.profitability)}
+          <span
+            className={`spec-value text-number-display ${metrics.roi != null && metrics.roi < 0 ? "is-warning" : "is-primary"}`}
+          >
+            {metrics.roi != null ? `${(metrics.roi * 100).toFixed(1)}%` : "—"}
           </span>
-          <span className="spec-label text-caption-uppercase">Profitability</span>
+          <span className="spec-label text-caption-uppercase">ROI</span>
         </div>
       </div>
 
@@ -97,31 +142,31 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                   </div>
                   <div className="panel-body stack-sm">
                     <InfoRow label="Registration Number" value={vehicle.registration_number} />
-                    <InfoRow label="Model" value={vehicle.model} />
-                    <InfoRow label="Vehicle Type" value={vehicle.vehicle_type} />
-                    <InfoRow label="Max Load Capacity" value={`${vehicle.max_load_capacity} t`} />
-                    <InfoRow label="Odometer" value={`${vehicle.odometer.toLocaleString("en-IN")} km`} />
+                    <InfoRow label="Model" value={vehicle.name_model} />
+                    <InfoRow label="Vehicle Type" value={VEHICLE_TYPE_LABELS[vehicle.vehicle_type]} />
+                    <InfoRow label="Max Load Capacity" value={`${fmtNumber(vehicle.max_load_capacity_kg)} kg`} />
+                    <InfoRow label="Odometer" value={`${fmtNumber(vehicle.odometer_km)} km`} />
                     <InfoRow label="Acquisition Cost" value={fmtMoney(vehicle.acquisition_cost)} />
-                    <InfoRow label="Region" value={vehicle.region} />
+                    <InfoRow label="Region" value={vehicle.region ?? "—"} />
                   </div>
                 </div>
                 <div className="panel">
                   <div className="panel-header">
                     <h2 className="text-title-md" style={{ margin: 0 }}>
-                      Predictive Health
+                      Cost Breakdown
                     </h2>
                   </div>
                   <div className="panel-body stack-sm">
                     <div className="health-row">
                       <div className="health-meta text-body-sm u-muted-soft">Maintenance Risk</div>
                       <div>
-                        <RiskBadge level={health.maintenance_risk} />
+                        <RiskBadge level={riskFromHealth(metrics.health_score)} />
                       </div>
                     </div>
-                    <InfoRow label="Predicted Service Date" value={fmtDate(health.predicted_service_date)} />
-                    <InfoRow label="Last Calculated" value={fmtDateTime(health.calculated_at)} />
-                    <InfoRow label="Fuel Efficiency" value={`${analytics.fuel_efficiency} km/l`} />
-                    <InfoRow label="Utilization" value={`${analytics.utilization_percent}%`} />
+                    <InfoRow label="Fuel Cost" value={fmtMoney(costs.fuel_total)} />
+                    <InfoRow label="Maintenance Cost" value={fmtMoney(costs.maintenance_total)} />
+                    <InfoRow label="Other Expenses" value={fmtMoney(costs.other_total)} />
+                    <InfoRow label="Total Operational Cost" value={fmtMoney(costs.operational_total)} />
                   </div>
                 </div>
               </div>
@@ -139,25 +184,19 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                       <th>Number</th>
                       <th>Expiry Date</th>
                       <th>Status</th>
-                      <th></th>
                     </tr>
                   </thead>
                   <tbody>
                     {documents.length === 0 ? (
-                      <EmptyRow colSpan={5} label="No documents on file." />
+                      <TableRowState colSpan={4}>No documents on file.</TableRowState>
                     ) : (
                       documents.map((d) => (
-                        <tr key={d.document_number}>
-                          <td className="cell-strong">{d.document_type}</td>
-                          <td className="cell-muted">{d.document_number}</td>
+                        <tr key={d.id}>
+                          <td className="cell-strong">{DOCUMENT_TYPE_LABELS[d.document_type] ?? d.document_type}</td>
+                          <td className="cell-muted">{d.document_number ?? "—"}</td>
                           <td className="cell-muted">{fmtDate(d.expiry_date)}</td>
                           <td>
                             <DocumentStatusBadge status={d.status} />
-                          </td>
-                          <td>
-                            <a href="#" className="btn-text text-body-sm">
-                              View File
-                            </a>
                           </td>
                         </tr>
                       ))
@@ -184,11 +223,11 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                   </thead>
                   <tbody>
                     {maintenance.length === 0 ? (
-                      <EmptyRow colSpan={5} label="No maintenance history." />
+                      <TableRowState colSpan={5}>No maintenance history.</TableRowState>
                     ) : (
-                      maintenance.map((m, i) => (
-                        <tr key={i}>
-                          <td className="cell-strong">{m.maintenance_type}</td>
+                      maintenance.map((m) => (
+                        <tr key={m.id}>
+                          <td className="cell-strong">{MAINTENANCE_TYPE_LABELS[m.maintenance_type] ?? m.maintenance_type}</td>
                           <td>{fmtMoney(m.cost)}</td>
                           <td>
                             <MaintenanceStatusBadge status={m.status} />
@@ -219,10 +258,10 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                   </thead>
                   <tbody>
                     {fuel.length === 0 ? (
-                      <EmptyRow colSpan={4} label="No fuel logs recorded." />
+                      <TableRowState colSpan={4}>No fuel logs recorded.</TableRowState>
                     ) : (
-                      fuel.map((f, i) => (
-                        <tr key={i}>
+                      fuel.map((f) => (
+                        <tr key={f.id}>
                           <td className="cell-strong">{fmtDateTime(f.logged_at)}</td>
                           <td>{f.liters} L</td>
                           <td>{fmtMoney(f.cost)}</td>
@@ -250,14 +289,14 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                     </tr>
                   </thead>
                   <tbody>
-                    {vehicleExpenses.length === 0 ? (
-                      <EmptyRow colSpan={4} label="No expenses recorded." />
+                    {expenses.length === 0 ? (
+                      <TableRowState colSpan={4}>No expenses recorded.</TableRowState>
                     ) : (
-                      vehicleExpenses.map((e, i) => (
-                        <tr key={i}>
-                          <td className="cell-strong">{e.expense_type}</td>
+                      expenses.map((e) => (
+                        <tr key={e.id}>
+                          <td className="cell-strong">{EXPENSE_TYPE_LABELS[e.expense_type] ?? e.expense_type}</td>
                           <td>{fmtMoney(e.amount)}</td>
-                          <td className="cell-muted">{e.notes}</td>
+                          <td className="cell-muted">{e.notes ?? "—"}</td>
                           <td className="cell-muted">{fmtDateTime(e.created_at)}</td>
                         </tr>
                       ))
@@ -283,17 +322,17 @@ export default async function VehicleDetailPage({ params }: { params: Promise<{ 
                     </tr>
                   </thead>
                   <tbody>
-                    {vehicleTrips.length === 0 ? (
-                      <EmptyRow colSpan={5} label="No trips recorded for this vehicle." />
+                    {trips.length === 0 ? (
+                      <TableRowState colSpan={5}>No trips recorded for this vehicle.</TableRowState>
                     ) : (
-                      vehicleTrips.map((t) => {
-                        const driver = t.driver_id ? getDriver(t.driver_id) : null;
+                      trips.map((t) => {
+                        const driver = driverById.get(t.driver_id);
                         return (
                           <tr key={t.id}>
                             <td className="cell-strong">
-                              {t.source_location} → {t.destination_location}
+                              {t.source_city} → {t.dest_city}
                             </td>
-                            <td>{driver ? driver.name : <span className="cell-muted">Unassigned</span>}</td>
+                            <td>{driver?.name ?? "—"}</td>
                             <td>{fmtMoney(t.revenue)}</td>
                             <td>
                               <TripStatusBadge status={t.status} />
@@ -320,15 +359,5 @@ function InfoRow({ label, value }: { label: string; value: string }) {
       <div className="health-meta text-body-sm u-muted-soft">{label}</div>
       <div className="cell-strong">{value}</div>
     </div>
-  );
-}
-
-function EmptyRow({ colSpan, label }: { colSpan: number; label: string }) {
-  return (
-    <tr>
-      <td colSpan={colSpan} className="cell-muted" style={{ textAlign: "center", padding: "var(--space-md)" }}>
-        {label}
-      </td>
-    </tr>
   );
 }
