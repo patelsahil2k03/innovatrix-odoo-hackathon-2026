@@ -991,6 +991,37 @@ textarea.input{
 
 table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
 
+/* Row actions (Dispatch / Cancel / Complete / View) are the whole point of a row, so they must
+   never be the thing that falls off the edge when a wide table has to scroll sideways. Pinning
+   the last column to the right keeps them on screen at any width — the rest of the row scrolls
+   underneath. Opt-in via `.sticky-actions` so tables whose last column is data, not buttons,
+   are unaffected. */
+/* Chrome and Safari ignore `position: sticky` on a <td>/<th> when the table is
+   `border-collapse: collapse`, so the sticky column has to opt out of collapsing. Cells here only
+   ever draw a border-bottom, so `separate` + zero spacing renders identically — no doubled rules. */
+.data-table.sticky-actions{ border-collapse: separate; border-spacing: 0; }
+
+.data-table.sticky-actions th:last-child,
+.data-table.sticky-actions td:last-child{
+  position: sticky;
+  right: 0;
+  z-index: 1;
+  background: var(--color-canvas);
+  box-shadow: inset 1px 0 0 var(--color-hairline);
+}
+
+.data-table.sticky-actions thead th:last-child{ z-index: 2; }
+
+/* The row-hover tint is a translucent overlay on <tr>, which a solid sticky cell would hide —
+   re-apply the same tint on top of the cell's own background so the row still reads as one row. */
+.data-table.sticky-actions tbody tr:hover td:last-child{
+  background-image: linear-gradient(rgba(255,255,255,0.025), rgba(255,255,255,0.025));
+}
+
+[data-theme="light"] .data-table.sticky-actions tbody tr:hover td:last-child{
+  background-image: linear-gradient(rgba(0,0,0,0.025), rgba(0,0,0,0.025));
+}
+
 .pagination{
   display: flex;
   align-items: center;
@@ -1376,6 +1407,16 @@ table.data-table{ width: 100%; border-collapse: collapse; min-width: 640px; }
    view rather than hiding past the right edge. */
 @media (max-width: 1280px){
   .grid-2{ grid-template-columns: 1fr; }
+}
+
+/* `.grid-2-wide` marks a grid whose left column carries a full-width data table. The trips table
+   needs ~1000px to show every column including the action buttons, and a 2fr column only reaches
+   that at ~1920px viewport — below it the table was scrolling sideways and hiding DISPATCH.
+   So this variant keeps the side panel only on genuinely wide screens and stacks everywhere else,
+   where the table then gets the full width it needs. (Plain `.grid-2` — e.g. the dashboard's two
+   panels — has no such constraint and keeps its own 1280px breakpoint above.) */
+@media (max-width: 1900px){
+  .grid-2.grid-2-wide{ grid-template-columns: 1fr; }
 }
 
 @media (max-width: 1024px){
